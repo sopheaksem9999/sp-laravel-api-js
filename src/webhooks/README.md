@@ -47,7 +47,7 @@ const rotated = await w.endpoints.rotateSecret(endpoint.id); // new secret, show
 const recent = await w.deliveries.list({ sort: ['-created_at'] }); // read-only
 ```
 
-- `endpoints`: `list`, `get`, `update`, `patch`, `remove`, `restore` pass through to `sp_webhook_endpoints`; `create` and `rotateSecret` generate secrets (below). A `secret` that an older host still returns is stripped from every result.
+- `endpoints`: `list`, `get`, `update`, `patch`, `remove`, `restore` pass through to `sp_webhook_endpoints` (`restore` resolves `{ restored: number }`, not the row; `get(id)` afterwards for it); `create` and `rotateSecret` generate secrets (below). A `secret` that an older host still returns is stripped from every result.
 - `subscriptions`: full CRUD on `sp_webhook_subscriptions`. `event` is `created | updated | deleted | '*'`, and `table_name` accepts `'*'`.
 - `deliveries`: only `list` and `get` exist, at runtime and in the type (`Pick<Table<Delivery>, 'list' | 'get'>`). The backend refuses writes (`isAuthWrite: false`).
 - Errors carry `module: 'webhooks'`. The three tables are plain table routes, so with the module off they answer 404, which is `not_found` here (never `module_disabled`); `capabilities(api)` from `@sopheak/sp-laravel-api/docs` is the detector.

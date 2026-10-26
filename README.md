@@ -58,7 +58,7 @@ for await (const row of invoices.iterate({ where: { status: 'open' }, perPage: 1
 
 `auth` is any object with `getHeaders(): Promise<Record<string, string>>`. It may also have `handleUnauthorized(failed?: { headers }): Promise<boolean>`: on a 401 the client calls it once, passing the headers sent on the failed attempt (lowercase keys), and, if it resolves `true`, retries the request once with fresh headers. Omit `auth` for public tables.
 
-Other table methods: `update` (PUT), `patch`, `remove`, `restore`, `upsert`, `aggregate`. `api.fn('invoices', 'approve', { id: 7, method: 'POST' })` calls a table function and `api.rpc('auth/whoami')` a global one. `api.request()` is the low-level call for anything else.
+Other table methods: `update` (PUT), `patch`, `remove`, `restore`, `upsert`, `aggregate`. `restore(id)` resolves `{ restored: number }` (the backend's count, typed `RestoreResult`), not the row; call `get(id)` afterwards if you need it. `api.fn('invoices', 'approve', { id: 7, method: 'POST' })` calls a table function and `api.rpc('auth/whoami')` a global one. `api.request()` is the low-level call for anything else.
 
 ## Query syntax cheat sheet
 

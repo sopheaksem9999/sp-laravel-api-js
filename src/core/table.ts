@@ -3,6 +3,9 @@ import { buildPage } from './page';
 import type { Page } from './page';
 import type { AggregateRow, AggregateSpec, Query, SelectItem, Where } from './query-types';
 import type { Api } from './create-api';
+
+/** What `table.restore(id)` resolves: the backend's own count of restored rows (`data` of `POST {table}/{id}/restore`). */
+export type RestoreResult = { restored: number };
 import type { createRequester } from './request';
 
 export type { Page } from './page';
@@ -30,7 +33,8 @@ export interface Table<T, W = T> {
   update(id: Id, body: Partial<W>, o?: CallOptions): Promise<T>;
   patch(id: Id, body: Partial<W>, o?: CallOptions): Promise<T>;
   remove(id: Id, o?: { force?: boolean } & CallOptions): Promise<{ deleted: boolean }>;
-  restore(id: Id, o?: CallOptions): Promise<T>;
+  /** Resolves the backend's own count (`{ restored: 1 }`), not the row; call `get(id)` afterwards to read it. */
+  restore(id: Id, o?: CallOptions): Promise<RestoreResult>;
   upsert(
     body: Partial<W>,
     o: { matchOn: string[]; refetch?: boolean; select?: SelectItem[] } & CallOptions,
@@ -103,7 +107,7 @@ export function makeTable<T, W = T>(
       return { deleted: true };
     },
     async restore(id, o) {
-      return (await request<T>({ method: 'POST', path: `${base}/${seg(id)}/restore`, ...callOpts(o) })).data;
+      return (await request<RestoreResult>({ method: 'POST', path: `${base}/${seg(id)}/restore`, ...callOpts(o) })).data;
     },
     async upsert(body, o) {
       const query = new URLSearchParams({ match_on: o.matchOn.join(',') });

@@ -139,10 +139,10 @@ describe('webhooks.endpoints reads strip `secret` from older hosts', () => {
   });
 
   it('remove and restore pass through; errors carry module webhooks', async () => {
-    const { calls, w } = setup((s) => (s.method === 'DELETE' ? new Response(null, { status: 204 }) : json({ id: 'e1', secret: 'LEAK' })));
+    const { calls, w } = setup((s) => (s.method === 'DELETE' ? new Response(null, { status: 204 }) : json({ restored: 1 })));
     expect(await w.endpoints.remove('e1')).toEqual({ deleted: true });
     expect(calls[0]?.method).toBe('DELETE');
-    expect(await w.endpoints.restore('e1')).toEqual({ id: 'e1' });
+    expect(await w.endpoints.restore('e1')).toEqual({ restored: 1 });
     expect(calls[1]?.url.pathname).toBe('/api/sp_webhook_endpoints/e1/restore');
   });
 

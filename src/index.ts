@@ -28,4 +28,4 @@ export type {
 export { createRequester } from './core/request';
 export type { ApiAuth, ApiConfig, ApiResult, RequestOptions } from './core/request';
 export { makeTable } from './core/table';
-export type { CallOptions, Page, Table, TableCore } from './core/table';
+export type { CallOptions, Page, RestoreResult, Table, TableCore } from './core/table';

@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import { serializeQuery } from '../../src/core/serialize';
 import { makeTable } from '../../src/core/table';
+import type { RestoreResult } from '../../src/index';
 import type { Query } from '../../src/core/query-types';
 import type { RequestOptions } from '../../src/core/request';
 
@@ -105,9 +106,10 @@ describe('table CRUD', () => {
     expect(qs(calls[0])).toBe('');
   });
 
-  it('restore POSTs to /restore and returns the record', async () => {
-    const { calls, table } = setup([{ data: { id: 7 } }]);
-    expect(await table.restore(7)).toEqual({ id: 7 });
+  it('restore POSTs to /restore and returns the backend count {restored}', async () => {
+    const { calls, table } = setup([{ data: { restored: 1 } }]);
+    expect(await table.restore(7)).toEqual({ restored: 1 });
+    expectTypeOf(table.restore).returns.resolves.toEqualTypeOf<RestoreResult>();
     expect(calls[0]).toMatchObject({ method: 'POST', path: 'invoices/7/restore' });
   });
 

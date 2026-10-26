@@ -1,7 +1,7 @@
 import { SpApiError } from '../core/errors';
 import type { Api } from '../core/create-api';
 import type { Page } from '../core/page';
-import type { Table, CallOptions } from '../core/table';
+import type { Table, CallOptions, RestoreResult } from '../core/table';
 
 export { parseWebhook, verifyWebhook } from './receiver';
 export type { ParsedWebhook, WebhookHeaders } from './receiver';
@@ -64,7 +64,7 @@ export interface Endpoints {
   update(id: WebhookId, body: EndpointInput, o?: CallOptions): Promise<Endpoint>;
   patch(id: WebhookId, body: EndpointInput, o?: CallOptions): Promise<Endpoint>;
   remove: Table<Endpoint>['remove'];
-  restore(id: WebhookId, o?: CallOptions): Promise<Endpoint>;
+  restore(id: WebhookId, o?: CallOptions): Promise<RestoreResult>;
   /**
    * Creates an endpoint. The backend requires `name`, `url` and `secret` and never returns the secret, so when
    * `secret` is missing or empty a 32-byte random one (64 hex chars, Web Crypto) is generated and sent. The secret
