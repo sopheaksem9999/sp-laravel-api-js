@@ -18,3 +18,5 @@ export type {
   SerializeOptions,
   Where,
 } from './core/query-types';
+export { createRequester } from './core/request';
+export type { ApiAuth, ApiConfig, ApiResult, RequestOptions } from './core/request';
