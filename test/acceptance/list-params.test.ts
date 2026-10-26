@@ -77,6 +77,11 @@ const ROWS: Row[] = [
   { name: 'permissions.roles.iterate()', call: (a) => drain(permissions(a).roles.iterate({ perPage: PER_PAGE })), pages: 1, modes: ['cursor-first', 'cursor-next'] },
   { name: 'permissions.permissions.list({ page: 1 })', call: (a) => permissions(a).permissions.list({ page: 1, perPage: PER_PAGE }), modes: ['offset'] },
   { name: 'attachments.folders.list({ parent_id })', call: (a) => attachments(a).folders.list({ parent_id: 1 }), modes: ['none'], perPage: 25 },
+  { name: 'attachments.folders.list()', call: (a) => attachments(a).folders.list(), modes: ['none'], perPage: 25 },
+  { name: 'attachments.folders.listPage(cursor: null)', call: (a) => attachments(a).folders.listPage(undefined, { cursor: null, perPage: PER_PAGE }), modes: ['cursor-first'] },
+  { name: 'attachments.folders.listPage(cursor)', call: (a) => attachments(a).folders.listPage({ parent_id: 1 }, { cursor: 'c9', perPage: PER_PAGE }), modes: ['cursor-next'] },
+  { name: 'attachments.folders.listPage(page)', call: (a) => attachments(a).folders.listPage(undefined, { page: 3, perPage: PER_PAGE }), modes: ['offset'] },
+  { name: 'attachments.forRecord().list()', call: (a) => attachments(a).forRecord('products', 7).list({ collection: 'gallery' }), modes: ['none'], perPage: 25 },
 ];
 
 function checkRequest(url: URL, mode: Mode, perPage: number): void {
@@ -107,23 +112,12 @@ describe('every list call sends per_page and never an empty cursor (spec §10)',
     expect(() => checkRequest(new URL(`https://h.test/t?per_page=${PER_PAGE}&cursor=c2`), 'cursor-first', PER_PAGE)).toThrow();
   });
 
-  // No client-controlled paging: the backend builds its own filter from the path and drops the request's query
-  // (sp-laravel-api AttachmentUploadController::getForRecord), so a per_page sent here would be ignored; it then
-  // pages with record.default_per_page (task-36 report, Finding F2). Asserted: nothing paging-related is sent.
-  it('attachments.forRecord().list(): no cursor or page parameter at all', async () => {
+  // forRecord().list() is in ROWS: per_page is sent (spec §10), but the backend drops the query on this route
+  // (sp-laravel-api AttachmentUploadController::getForRecord) and answers at most record.default_per_page links
+  // (task-36 report, Finding F2, backend issue). folders.list() without a filter was Finding F1, fixed in round 1.
+  it('forRecord().list() sends collection_name next to per_page and nothing else', async () => {
     const { api, sent } = setup(0);
     await attachments(api).forRecord('products', 7).list({ collection: 'gallery' });
-    expect(sent).toHaveLength(1);
-    expect([...sent[0]!.searchParams.keys()]).toEqual(['collection_name']);
-  });
-
-  // KNOWN DEFECT (task-36 report, Finding F1): with no filter, folders.list() sends no query string, so no
-  // per_page, while the backend (AttachmentUploadController::getFolders) passes the query to
-  // executeGetByFilter, which pages with record.default_per_page. `it.fails` pins it: fixing src/attachments
-  // makes this test fail, and the row should then move into ROWS above.
-  it.fails('attachments.folders.list() without a filter sends per_page (F1)', async () => {
-    const { api, sent } = setup(0);
-    await attachments(api).folders.list();
-    checkRequest(sent[0]!, 'none', 25);
+    expect([...sent[0]!.searchParams.keys()].sort()).toEqual(['collection_name', 'per_page']);
   });
 });

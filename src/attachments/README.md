@@ -31,10 +31,11 @@ The routes are table functions on `sp_attachments`: `{baseUrl}/sp_attachments/{r
 |---|---|---|
 | `upload(file, o)` | `POST …/upload` | `multipart/form-data`: `file`, optional `visibility`, `record_type`, `record_id`, `collection_name`. The client sets no `Content-Type`; the runtime adds the boundary. |
 | `cloneTemp(id, o)` | `POST …/clone-temp` | JSON `{ attachment_id, visibility?, temp_timeout_minutes?, record_type?, record_id?, collection_name? }` |
-| `forRecord(t, id).list({ collection })` | `GET …/record/{t}/{id}?collection_name=` | returns links, each with an `attachment` |
+| `forRecord(t, id).list({ collection })` | `GET …/record/{t}/{id}?per_page=&collection_name=` | returns links, each with an `attachment`. `per_page` is always sent (spec §10), but the backend ignores the query on this route except `collection_name` and returns at most its `record.default_per_page` links (default 25), with no way to page further: a backend limitation, reported |
 | `forRecord(t, id).link(ids, { collection })` | `POST …/record/{t}/{id}` | one request `{ attachment_ids: [...], collection_name? }` (backend >= 0.5.06, idempotent per id); with `quoting: false` (older hosts) one `{ attachment_id }` request per id, in order; returns the combined links |
 | `forRecord(t, id).unlink(attachmentId)` | `DELETE …/record/{t}/{id}/{attachmentId}` | |
-| `folders.list(where)` | `GET …/folders` | filters carry operators; a bare value is sent as `eq` (`parent_id=eq.1`); the backend ignores a literal `parent_id=1` |
+| `folders.list(where?, { perPage, cursor, page })` | `GET …/folders?per_page=…` | one page as an array; `per_page` is always sent (`perPage`, else `defaults.perPage`, else 25); filters carry operators; a bare value is sent as `eq` (`parent_id=eq.1`); the backend ignores a literal `parent_id=1` |
+| `folders.listPage(where?, { perPage, cursor, page })` | same | the core `Page` (`data`, `next`, `prev`, `total`, `meta`); `cursor: null` sends `cursor=0`. Current backends answer this route without `meta`, so `next` stays `null`: page with `page` (offset) there |
 | `folders.create(b)` / `update(id, b)` / `remove(id)` | `POST …/folders`, `PUT …/folders/{id}`, `DELETE …/folders/{id}` | `remove` answers 409 when the folder is not empty |
 
 Differences from the older docs: the backend field is `collection_name` (the client option is `collection`); `name` on `upload` is the file name of the multipart part (the backend has no `name` field; it also accepts `title` and `caption`); ids are sent as strings because the backend validates them as strings.

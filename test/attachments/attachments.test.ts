@@ -218,10 +218,10 @@ describe('attachments.forRecord', () => {
     expect(calls[0]!.url.searchParams.get('collection_name')).toBe('gallery');
   });
 
-  it('list without options has no query', async () => {
+  it('list without options sends only per_page (spec §10; the backend ignores it on this route)', async () => {
     const { calls, att } = setup(() => json([]));
     await att.forRecord('products', 7).list();
-    expect(calls[0]!.url.search).toBe('');
+    expect(calls[0]!.url.search).toBe('?per_page=25');
   });
 
   it('encodes special characters in table and id', async () => {
@@ -305,6 +305,48 @@ describe('attachments.folders', () => {
     const { calls, att } = setup(() => json([]));
     await att.folders.list({ parent_id: 1 });
     expect(calls[0]!.url.searchParams.get('parent_id')).toBe('eq.1');
+  });
+
+  it('list without a filter still sends per_page (default 25, then defaults.perPage, then perPage)', async () => {
+    const { calls, att } = setup(() => json([]));
+    await att.folders.list();
+    expect(calls[0]!.url.search).toBe('?per_page=25');
+    await att.folders.list(undefined, { perPage: 50 });
+    expect(calls[1]!.url.searchParams.get('per_page')).toBe('50');
+    const withDefaults = setup(() => json([]), { defaults: { perPage: 10 } });
+    await withDefaults.att.folders.list();
+    expect(withDefaults.calls[0]!.url.searchParams.get('per_page')).toBe('10');
+  });
+
+  it('listPage: cursor=0 on the first page, next follows meta.next_cursor on a full page, perPage respected', async () => {
+    const page = (data: unknown[], next: string | null): Response =>
+      new Response(JSON.stringify({ success: true, data, meta: { next_cursor: next } }), { headers: { 'Content-Type': 'application/json' } });
+    let n = 0;
+    const { calls, att } = setup(() => (++n === 1 ? page([{ id: 1 }, { id: 2 }], 'c2') : page([{ id: 3 }], 'c3')));
+    const first = await att.folders.listPage({ parent_id: 1 }, { perPage: 2, cursor: null });
+    expect(calls[0]!.url.searchParams.get('cursor')).toBe('0');
+    expect(calls[0]!.url.searchParams.get('per_page')).toBe('2');
+    expect(calls[0]!.url.searchParams.get('parent_id')).toBe('eq.1');
+    expect(first.data).toEqual([{ id: 1 }, { id: 2 }]);
+    expect(first.next).toBe('c2');
+    const second = await att.folders.listPage({ parent_id: 1 }, { perPage: 2, cursor: first.next });
+    expect(calls[1]!.url.searchParams.get('cursor')).toBe('c2');
+    expect(second.data).toEqual([{ id: 3 }]);
+    expect(second.next).toBeNull(); // short page: the end, whatever meta says
+  });
+
+  it('listPage in offset mode (page) and against a host that returns no meta: next is null', async () => {
+    const { calls, att } = setup(() => json([{ id: 1 }]));
+    const p = await att.folders.listPage(undefined, { page: 2, perPage: 1 });
+    expect(calls[0]!.url.searchParams.get('page')).toBe('2');
+    expect(calls[0]!.url.searchParams.has('cursor')).toBe(false);
+    expect(p.data).toEqual([{ id: 1 }]);
+    expect(p.next).toBeNull();
+  });
+
+  it('404 on listPage is module_disabled (feature route)', async () => {
+    const { att } = setup(() => new Response('{}', { status: 404 }));
+    await expect(att.folders.listPage()).rejects.toMatchObject({ code: 'module_disabled', module: 'attachments' });
   });
 
   it('create POSTs, update PUTs, remove DELETEs', async () => {

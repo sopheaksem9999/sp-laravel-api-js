@@ -1,6 +1,9 @@
 import type { Api } from '../core/create-api';
 import { SpApiError } from '../core/errors';
-import type { Where } from '../core/query-types';
+import { buildPage } from '../core/page';
+import type { Page } from '../core/page';
+import type { Query, Where } from '../core/query-types';
+import { serializeQuery } from '../core/serialize';
 import { checkPartSize, directUploads, fileName, toSource } from './multipart';
 import type { DirectUploadOptions, MultipartUploadOptions, UploadSource } from './multipart';
 
@@ -121,8 +124,24 @@ export interface ViewUrlOptions {
   format?: 'webp' | 'jpg' | 'png' | 'gif';
 }
 
+/**
+ * Paging for `folders.list` / `folders.listPage`. `per_page` is always sent (this, else `defaults.perPage`, else 25).
+ * `cursor: null` (or `''`) asks for the first cursor page (`cursor=0`); `page` is offset mode.
+ */
+export interface FolderPageOptions {
+  perPage?: number;
+  cursor?: string | null;
+  page?: number;
+  signal?: AbortSignal;
+}
+
 /** Links for one record. */
 export interface RecordAttachments {
+  /**
+   * Sends `per_page` (spec §10), but the backend ignores the query on this route except `collection_name` and
+   * answers at most its `record.default_per_page` links (default 25); there is no way to page further (backend
+   * limitation, reported).
+   */
   list(o?: { collection?: string; signal?: AbortSignal }): Promise<AttachmentLink[]>;
   /** Links one or more attachments. One request on backend >= 0.5.06; one request per id with `quoting: false`. */
   link(ids: AttachmentId | AttachmentId[], o?: { collection?: string; signal?: AbortSignal }): Promise<AttachmentLink[]>;
@@ -131,8 +150,16 @@ export interface RecordAttachments {
 
 /** Folder calls. */
 export interface AttachmentFolders {
-  /** Filters are serialised with operators (`parent_id=eq.1`); a bare value means `eq`. */
-  list(where?: Where, o?: { signal?: AbortSignal }): Promise<AttachmentFolder[]>;
+  /**
+   * One page of folders as an array (`listPage(...).data`). Filters are serialised with operators
+   * (`parent_id=eq.1`); a bare value means `eq`. `per_page` is always sent.
+   */
+  list(where?: Where, o?: FolderPageOptions): Promise<AttachmentFolder[]>;
+  /**
+   * One page of folders with its cursors. `next` is set only when the host returns `meta.next_cursor` on a full
+   * page; current backends answer folders without `meta`, so page them with `page` (offset) instead.
+   */
+  listPage(where?: Where, o?: FolderPageOptions): Promise<Page<AttachmentFolder>>;
   create(b: AttachmentFolderInput & { name: string }, o?: { signal?: AbortSignal }): Promise<AttachmentFolder>;
   update(id: AttachmentId, b: AttachmentFolderInput, o?: { signal?: AbortSignal }): Promise<AttachmentFolder>;
   /** A 409 (`status 409`) means the folder is not empty. */
@@ -207,6 +234,29 @@ export function attachments(api: Api, options: AttachmentsOptions = {}): Attachm
   const collectionQuery = (collection: string | undefined): URLSearchParams | undefined =>
     collection === undefined ? undefined : new URLSearchParams({ collection_name: collection });
 
+  /** The core serializer, exactly as `api.request` / `table.list` use it: always adds `per_page`. */
+  const serialize = (q: Query): URLSearchParams =>
+    serializeQuery(q, { quoting: api.config.quoting ?? true, driver: api.config.driver, defaults: api.config.defaults });
+
+  const folderPage = async (where: Where | undefined, o: FolderPageOptions = {}): Promise<Page<AttachmentFolder>> => {
+    const q: Query = { where, perPage: o.perPage, cursor: o.cursor, page: o.page };
+    const params = serialize(q);
+    const perPage = Number(params.get('per_page'));
+    const r = await api.request<AttachmentFolder[]>({
+      method: 'GET',
+      path: path('folders'),
+      query: params,
+      signal: o.signal,
+      module: MODULE,
+      disabledOn404: true,
+    });
+    return buildPage(r.data, r.meta, {
+      perPage: Number.isFinite(perPage) && perPage > 0 ? perPage : Number.POSITIVE_INFINITY,
+      offsetMode: o.page !== undefined && o.cursor === undefined,
+      wantTotal: params.get('total') === 'true',
+    });
+  };
+
   const { uploadDirect, uploadMultipart } = directUploads(api, (fn) => path(fn));
 
   const formUpload = async (file: UploadSource, o: UploadOptions): Promise<Attachment> => {
@@ -278,7 +328,12 @@ export function attachments(api: Api, options: AttachmentsOptions = {}): Attachm
     forRecord(table, recordId) {
       const rp = path('record', table, recordId);
       return {
-        list: (o = {}) => call<AttachmentLink[]>('GET', rp, { query: collectionQuery(o.collection), signal: o.signal }),
+        list: (o = {}) => {
+          // per_page always (spec §10); the backend ignores it here and caps at its default page size.
+          const query = serialize({});
+          if (o.collection !== undefined) query.set('collection_name', o.collection);
+          return call<AttachmentLink[]>('GET', rp, { query, signal: o.signal });
+        },
         async link(ids, o = {}) {
           const list = (Array.isArray(ids) ? ids : [ids]).map(String);
           if (list.length === 0) return [];
@@ -300,8 +355,8 @@ export function attachments(api: Api, options: AttachmentsOptions = {}): Attachm
     },
 
     folders: {
-      list: (where, o = {}) =>
-        call<AttachmentFolder[]>('GET', path('folders'), { query: where === undefined ? undefined : { where }, signal: o.signal }, true),
+      list: async (where, o = {}) => (await folderPage(where, o)).data,
+      listPage: (where, o = {}) => folderPage(where, o),
       create: (b, o = {}) => call<AttachmentFolder>('POST', path('folders'), { body: folderBody(b), signal: o.signal }, true),
       update: (id, b, o = {}) => call<AttachmentFolder>('PUT', path('folders', id), { body: folderBody(b), signal: o.signal }),
       async remove(id, o = {}) {
