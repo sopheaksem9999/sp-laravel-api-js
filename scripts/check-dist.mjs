@@ -1,12 +1,19 @@
-// Guard: dist/ must not import Node built-ins (`node:` specifiers), so the
-// package runs in browsers and edge runtimes. dist/cli/ is exempt (Node-only CLI).
+// Guard: dist/ must not import Node built-ins, so the package runs in browsers and edge runtimes. Catches static
+// (`from "node:x"`), side-effect (`import "node:x"`), dynamic (`import("node:x")`) and CJS (`require("node:x")`)
+// forms, with the `node:` prefix or as a bare builtin (`from "fs"`, `require("path")`; list in module-markers.mjs).
+// dist/cli/ is exempt (Node-only CLI).
+//
+// Module markers (MODULE_MARKERS_BY_MODULE) live in scripts/module-markers.mjs, shared with check-bundle.mjs;
+// a new module adds its markers there (see the steps at the top of that file), never here.
 import { readdirSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { MODULE_MARKERS, MODULE_MARKERS_BY_MODULE, NODE_IMPORT_RE, NODE_ONLY_DIST_DIRS } from './module-markers.mjs';
 
-const root = fileURLToPath(new URL('../dist', import.meta.url));
-const NODE_IMPORT = /(from|require\()\s*["']node:/;
+// CHECK_DIST_ROOT: point the guard at another directory (used only to demonstrate it fails on a planted file).
+const root = process.env.CHECK_DIST_ROOT ?? fileURLToPath(new URL('../dist', import.meta.url));
+const NODE_IMPORT = NODE_IMPORT_RE;
 const bad = [];
 
 function walk(dir) {
@@ -14,7 +21,7 @@ function walk(dir) {
     const full = join(dir, entry.name);
     const rel = relative(root, full);
     if (entry.isDirectory()) {
-      if (rel === 'cli') continue;
+      if (NODE_ONLY_DIST_DIRS.includes(rel)) continue;
       walk(full);
     } else if (NODE_IMPORT.test(readFileSync(full, 'utf8'))) {
       bad.push(rel.split(sep).join('/'));
@@ -29,7 +36,7 @@ try {
   process.exit(1);
 }
 if (bad.length) {
-  console.error(`check-dist: node: imports found in dist:\n  ${bad.join('\n  ')}`);
+  console.error(`check-dist: Node built-in imports found in dist (node:x or a bare builtin):\n  ${bad.join('\n  ')}`);
   process.exit(1);
 }
 
@@ -37,26 +44,6 @@ if (bad.length) {
 // pulls in no module). Follow every relative import/require from the two main entries.
 // Each marker must be a literal that really appears in that module's own dist file (guarded below, so a
 // marker that the bundler never emits cannot pass vacuously).
-const MODULE_MARKERS_BY_MODULE = {
-  bulk: ['bulk/create', 'bulk/upsert'],
-  attachments: [
-    'sp_attachments',
-    'clone-temp',
-    'attachment_ids',
-    'create-upload-url',
-    'complete-upload',
-    'create-multipart-upload',
-    'sign-multipart-part',
-    'complete-multipart-upload',
-    'abort-multipart-upload',
-  ],
-  audit: ['sp_audit_logs', 'field-timeline', 'field-stats'],
-  permissions: ['sp_roles', 'sp_permissions', '_delete'],
-  webhooks: ['sp_webhook_endpoints', 'sp_webhook_subscriptions', 'sp_webhook_deliveries', 'x-webhook-event'],
-  realtime: ['tenant.global', 'realtime_handler_error'],
-  docs: ['docs/openapi.json', 'docs/llms.txt', 'x-sp-realtime'],
-};
-const MODULE_MARKERS = Object.values(MODULE_MARKERS_BY_MODULE).flat();
 const vacuous = [];
 for (const [mod, markers] of Object.entries(MODULE_MARKERS_BY_MODULE)) {
   for (const ext of ['js', 'cjs']) {

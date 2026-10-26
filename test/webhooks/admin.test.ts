@@ -58,6 +58,9 @@ describe('webhooks.endpoints.create', () => {
 
     const later = await w.endpoints.get('e1');
     expect('secret' in later).toBe(false);
+    // Restore here too: under Bun (spec §7 runtime matrix) the afterEach vi.restoreAllMocks() leaves this spy on
+    // Bun's non-configurable Crypto.prototype.getRandomValues in place, and the next tests get the fixed bytes.
+    spy.mockRestore();
   });
 
   it('generates a different secret each time with the real Web Crypto', async () => {
