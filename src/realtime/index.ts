@@ -18,8 +18,8 @@ export interface RealtimeChange {
 
 /** Options of `handler`. */
 export interface RealtimeHandlerOptions {
-  /** Called for every valid broadcast. If it throws, the error is swallowed (see `handler`). */
-  onChange: (change: RealtimeChange) => void | PromiseLike<unknown>;
+  /** Called for every valid broadcast. May return a promise (e.g. `invalidateQueries`); a throw or rejection is swallowed (see `handler`). */
+  onChange: (change: RealtimeChange) => unknown;
 }
 
 /** What `realtime(api)` returns. */
