@@ -1,6 +1,6 @@
 # `@sopheak/sp-laravel-api/attachments`
 
-Upload files, clone temp files, build view/download URLs, link attachments to records and manage folders. Direct and multipart (large file) upload are not in this release.
+Upload files (form, direct to storage, or S3 multipart for large files), clone temp files, build view/download URLs, link attachments to records and manage folders.
 
 ```ts
 import { createApi } from '@sopheak/sp-laravel-api';
@@ -39,6 +39,8 @@ The routes are table functions on `sp_attachments`: `{baseUrl}/sp_attachments/{r
 
 Differences from the older docs: the backend field is `collection_name` (the client option is `collection`); `name` on `upload` is the file name of the multipart part (the backend has no `name` field; it also accepts `title` and `caption`); ids are sent as strings because the backend validates them as strings.
 
+Direct and multipart upload routes are listed under [Direct and multipart upload](#direct-and-multipart-upload).
+
 Limits: the default maximum upload size is 10 MB (`max_upload_size`, a host setting). The client does not check it; an oversize file fails with a 422.
 
 ## URLs
@@ -62,3 +64,75 @@ or use the signed, public `preview_url` when the host enables previews.
 - 410: a temp attachment has expired (`cloneTemp` of an expired file). Surfaces with `status: 410`.
 - 409: `folders.remove` on a folder that is not empty. Surfaces with `status: 409` (`code: 'unknown'`).
 - 422: validation failures (size, visibility, missing file) with `fieldErrors`.
+
+## Direct and multipart upload
+
+Both need `attachments.direct_upload.enabled` on the host (off by default). When it is off the backend removes the routes, so a 404 on `create-upload-url` or `create-multipart-upload` (and `sign-multipart-part`) throws `SpApiError` with `code: 'module_disabled'` and `module: 'attachments.direct_upload'`. Every error from these flows carries `module: 'attachments.direct_upload'`; option validation errors carry `module: 'attachments'` and `code: 'unencodable_value'`.
+
+```ts
+// Direct: create-upload-url -> PUT to the signed URL (S3/R2) or POST the file (local disk) -> complete-upload
+const a = await att.uploadDirect(file, { visibility: 'private', contentType: 'image/png' });
+
+// Multipart (S3/R2 only): create-multipart-upload -> sign-multipart-part + PUT per part -> complete-multipart-upload
+const b = await att.uploadMultipart(bigFile, {
+  partSize: 8 * 1024 * 1024, // default 8 MiB; integer >= 5 MiB (MIN_PART_SIZE)
+  concurrency: 4,            // default 4
+  visibility: 'private',
+  signal: controller.signal,
+  onProgress: ({ loaded, total }) => render(loaded, total), // total is null for a stream of unknown size
+  onState: (s) => localStorage.setItem('upload', JSON.stringify(s)), // after create and after every part
+});
+
+// Pick one: 'form' (default, unchanged), 'direct', 'multipart' or 'auto'
+await att.upload(file, { strategy: 'auto', directUpload: true });
+```
+
+| Call | Route | Body |
+|---|---|---|
+| `uploadDirect` | `POST …/create-upload-url` | `{ filename, content_type?, visibility, folder_id? }` |
+| | `PUT {upload_url}` (S3/R2) | the file, with the `headers` the backend returned; sent with the injected `fetch`, never through `api.request` |
+| | `POST …/complete-upload` | JSON `{ key, upload_token, expires_at, filename, content_type?, visibility, folder_id?, record_type?, record_id?, collection_name? }`; on a local disk (`upload_url: null`) the same fields plus `file` as `multipart/form-data` |
+| `uploadMultipart` | `POST …/create-multipart-upload` | `{ filename, content_type?, visibility, folder_id? }` -> `{ key, upload_id, upload_token, expires_at, part_size }` |
+| | `POST …/sign-multipart-part` | `{ key, upload_id, upload_token, expires_at, part_number, visibility }` -> `{ url, headers }` |
+| | `PUT {url}` | the part bytes; the `ETag` response header is collected |
+| | `POST …/complete-multipart-upload` | `{ key, upload_id, upload_token, expires_at, parts: [{ part_number, etag }], filename, visibility, folder_id?, record_type?, record_id?, collection_name? }` |
+| | `POST …/abort-multipart-upload` | `{ key, upload_id, upload_token, expires_at, visibility }` (on any failure or abort) |
+
+Backend facts (verified against `AttachmentUploadController.php`, `AttachmentPresignService.php` and `config/sp-attachments.php`; the code wins over older docs):
+
+- **Visibility is sent identically on every call.** The upload token is an HMAC over key, disk, tenant, upload id and expiry, and the disk comes from the visibility. A different visibility (or tenant) on a later call fails with 422 "Invalid or expired upload token". The client sends `visibility` (default `'private'`, the backend default) on every call; `abort-multipart-upload` requires it.
+- **Local disk.** For a disk without presigned uploads `create-upload-url` answers `upload_url: null`, `method: 'POST'` and a `complete_endpoint`. That endpoint is the backend's own `complete-upload` route; the client posts the file to `…/complete-upload` built from its `baseUrl` (with auth and tenant), not to the server-built absolute URL, so proxies and base paths keep working.
+- **Signed URLs.** The PUT goes to the storage host with the runtime's `fetch` (`config.fetch ?? globalThis.fetch`) and only the headers the backend returned (PSR-7 arrays are joined with `, `; `Host` and `Content-Length` are left to the runtime). It never carries `Authorization`, the tenant header or `X-Request-ID`, and has no client timeout (use `signal`).
+- **Size limits.** A direct upload is still bounded by `max_upload_size` (default 10 MB): the backend checks the stored object at `complete-upload` and deletes an oversize one (422). Multipart uploads are bounded only by the bucket.
+- **Part size.** S3 needs at least 5 MiB per part (except the last) and at most 10,000 parts; the backend enforces no other minimum. `create-multipart-upload` returns `part_size` (the host's `min_multipart_size_bytes`, default 100 MiB, documented as the file size above which multipart is used); the client does not use it and keeps its own `partSize` (default 8 MiB).
+- **Expiry.** `expires_at` is a unix timestamp (seconds) `presign_ttl_seconds` (default 1800) after creation. The token, and so a resume, stops working after it.
+- **404s.** Only the create/sign routes map a 404 to `module_disabled`. `complete-upload` answers 404 "File not found on disk" when the PUT did not land; that stays `not_found`.
+
+### CORS
+
+Browser uploads need a CORS policy on the bucket that allows `PUT` from your origin and **exposes `ETag`** (`"ExposeHeaders": ["ETag"]`). Without it the browser hides the header, and a multipart part fails with `SpApiError` `code: 'unknown'` naming `ExposeHeaders: ETag`. A direct (single PUT) upload does not read the `ETag`.
+
+### Sources and streaming
+
+`file` is a `Blob`/`File`, `Uint8Array` (Node `Buffer` included), `ArrayBuffer`, an async iterable of `Uint8Array` (a Node `Readable` included) or a `ReadableStream<Uint8Array>`. Multipart never buffers the whole file: a `Blob` is sliced per part, bytes are viewed per part, and a stream is re-chunked into exactly `partSize` bytes (the last part may be smaller). At most `concurrency` parts are read and in flight at once, and each part is signed right before its PUT (signed URLs expire). `uploadDirect` sends one body, so it collects a stream into memory first (bounded by `max_upload_size`). The form upload (`upload` without a strategy) takes `Blob`, `Uint8Array` or `ArrayBuffer` only. Progress is reported per completed part.
+
+### Strategy `auto`
+
+`upload(file, { strategy: 'auto' })` uses multipart when the size is above `partSize × 2` (16 MiB by default) or unknown (a stream). Otherwise it uses `uploadDirect` **only when `directUpload: true`** is passed (per call, or `attachments(api, { directUpload: true })`), and otherwise the form upload. The client never probes the backend to find out whether direct upload is on. Without `strategy` (or with `'form'`) `upload` is the form upload, as before.
+
+### Abort, failures and resume
+
+- Any failure (sign, PUT, missing `ETag`, complete) cancels the other in-flight PUTs, calls `abort-multipart-upload` (best effort: its own failure is ignored) and rethrows the original `SpApiError`.
+- Aborting `signal` cancels in-flight PUTs, calls `abort-multipart-upload` and rejects with `signal.reason`. **Abort cancels the remote upload**; it is not a pause. To pause, stop the process (or drop the promise) and keep the last `onState` snapshot.
+- `onState(state)` receives a copy of `MultipartState = { key, upload_id, upload_token, expires_at, parts: [{ number, etag }] }` after the upload is created and after every part. Pass it back as `resume` with the same source and the same `partSize`: parts already in `state.parts` are skipped and only the rest is uploaded. `resume` needs a seekable source (`Blob`, `Uint8Array`, `ArrayBuffer`); a stream throws `unencodable_value`.
+
+```ts
+const saved = localStorage.getItem('upload');
+await att.uploadMultipart(file, {
+  resume: saved ? (JSON.parse(saved) as MultipartState) : undefined,
+  onState: (s) => localStorage.setItem('upload', JSON.stringify(s)),
+});
+localStorage.removeItem('upload');
+```
+
+**The upload token is a credential.** `upload_token` (with the key and upload id) lets anyone holding it sign parts and complete the upload as your tenant until `expires_at`, and signed URLs grant write access to the bucket. Store `onState` snapshots like a session token and delete them when the upload ends. The client never puts signed URLs or the token in error messages or `cause`; `onState` is the only place the token is handed out.

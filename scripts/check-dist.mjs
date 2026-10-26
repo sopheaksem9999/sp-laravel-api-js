@@ -39,7 +39,17 @@ if (bad.length) {
 // marker that the bundler never emits cannot pass vacuously).
 const MODULE_MARKERS_BY_MODULE = {
   bulk: ['bulk/create', 'bulk/upsert'],
-  attachments: ['sp_attachments', 'clone-temp', 'attachment_ids'],
+  attachments: [
+    'sp_attachments',
+    'clone-temp',
+    'attachment_ids',
+    'create-upload-url',
+    'complete-upload',
+    'create-multipart-upload',
+    'sign-multipart-part',
+    'complete-multipart-upload',
+    'abort-multipart-upload',
+  ],
 };
 const MODULE_MARKERS = Object.values(MODULE_MARKERS_BY_MODULE).flat();
 const vacuous = [];

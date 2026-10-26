@@ -1,6 +1,11 @@
 import type { Api } from '../core/create-api';
 import { SpApiError } from '../core/errors';
 import type { Where } from '../core/query-types';
+import { checkPartSize, directUploads, fileName, toSource } from './multipart';
+import type { DirectUploadOptions, MultipartUploadOptions, UploadSource } from './multipart';
+
+export { DEFAULT_PART_SIZE, MAX_PARTS, MIN_PART_SIZE } from './multipart';
+export type { DirectUploadOptions, MultipartState, MultipartUploadOptions, UploadProgress, UploadSource } from './multipart';
 
 const MODULE = 'attachments';
 const TABLE = 'sp_attachments';
@@ -75,6 +80,27 @@ export interface UploadOptions {
   signal?: AbortSignal;
 }
 
+/** Upload strategy for `upload`. */
+export type UploadStrategy = 'auto' | 'form' | 'direct' | 'multipart';
+
+/** Options for `upload`: the form upload by default, or another strategy. */
+export interface UploadStrategyOptions extends MultipartUploadOptions {
+  /**
+   * `'form'` (default): one `multipart/form-data` POST. `'direct'`: `uploadDirect`. `'multipart'`: `uploadMultipart`.
+   * `'auto'`: multipart when the size is above `partSize` x 2 (or unknown, for streams); otherwise direct when
+   * `directUpload` is true; otherwise the form upload. The backend is never probed to detect direct upload.
+   */
+  strategy?: UploadStrategy;
+  /** For `'auto'`: the host has `direct_upload.enabled`. Overrides the module option. */
+  directUpload?: boolean;
+}
+
+/** Options for `attachments(api, options)`. */
+export interface AttachmentsOptions {
+  /** The host has `direct_upload.enabled`; lets `upload(file, { strategy: 'auto' })` pick the direct upload. */
+  directUpload?: boolean;
+}
+
 /** Options for `cloneTemp`. */
 export interface CloneTempOptions {
   visibility?: 'temp_private' | 'temp_public';
@@ -115,7 +141,12 @@ export interface AttachmentFolders {
 
 /** The attachments module. */
 export interface Attachments {
-  upload(file: Blob | Uint8Array, o?: UploadOptions): Promise<Attachment>;
+  /** Form upload by default; see `UploadStrategyOptions.strategy`. A stream source needs another strategy. */
+  upload(file: UploadSource, o?: UploadStrategyOptions): Promise<Attachment>;
+  /** `create-upload-url` -> PUT to the signed URL (S3) or POST the file to `complete-upload` (local disk) -> `complete-upload`. */
+  uploadDirect(file: UploadSource, o?: DirectUploadOptions): Promise<Attachment>;
+  /** S3 multipart: `create-multipart-upload` -> per part `sign-multipart-part` + PUT -> `complete-multipart-upload`. */
+  uploadMultipart(file: UploadSource, o?: MultipartUploadOptions): Promise<Attachment>;
   cloneTemp(id: AttachmentId, o?: CloneTempOptions): Promise<Attachment>;
   /** Builds `{baseUrl}/sp_attachments/{rpc}/{id}/view?...`; no network call. */
   viewUrl(id: AttachmentId, o?: ViewUrlOptions): string;
@@ -154,7 +185,7 @@ function folderBody(b: AttachmentFolderInput): Record<string, unknown> {
  * A 404 is `module_disabled` only on calls with no lookup target (`upload` without `recordType`, `folders.list`,
  * `folders.create`); on every other call it stays `not_found` (missing record, link, attachment or folder).
  */
-export function attachments(api: Api): Attachments {
+export function attachments(api: Api, options: AttachmentsOptions = {}): Attachments {
   const rpc = api.config.rpcPrefix ?? 'rpc';
   const base = api.config.baseUrl.replace(/\/+$/, '');
   /** `sp_attachments/{rpc}/...segments`, each segment encoded; an empty `rpcPrefix` has no segment. */
@@ -176,21 +207,43 @@ export function attachments(api: Api): Attachments {
   const collectionQuery = (collection: string | undefined): URLSearchParams | undefined =>
     collection === undefined ? undefined : new URLSearchParams({ collection_name: collection });
 
+  const { uploadDirect, uploadMultipart } = directUploads(api, (fn) => path(fn));
+
+  const formUpload = async (file: UploadSource, o: UploadOptions): Promise<Attachment> => {
+    const src = toSource(file);
+    if (src === null || src.kind === 'stream') {
+      throw bad("attachments.upload: the form upload needs a Blob, Uint8Array or ArrayBuffer; use strategy 'multipart' for streams");
+    }
+    const blob = src.kind === 'blob' ? src.blob : new Blob([src.bytes as BlobPart]);
+    const fd = new FormData();
+    fd.append('file', blob, fileName(file, o.name));
+    const fields: Record<string, string | undefined> = {
+      visibility: o.visibility,
+      record_type: o.recordType,
+      record_id: str(o.recordId),
+      collection_name: o.collection,
+    };
+    for (const [k, v] of Object.entries(fields)) if (v !== undefined) fd.append(k, v);
+    return call<Attachment>('POST', path('upload'), { body: fd, signal: o.signal }, o.recordType === undefined);
+  };
+
   return {
-    upload(file, o = {}) {
-      const blob = file instanceof Blob ? file : new Blob([file as BlobPart]);
-      const fd = new FormData();
-      const filename = o.name ?? (typeof File !== 'undefined' && file instanceof File ? file.name : 'file');
-      fd.append('file', blob, filename);
-      const fields: Record<string, string | undefined> = {
-        visibility: o.visibility,
-        record_type: o.recordType,
-        record_id: str(o.recordId),
-        collection_name: o.collection,
-      };
-      for (const [k, v] of Object.entries(fields)) if (v !== undefined) fd.append(k, v);
-      return call<Attachment>('POST', path('upload'), { body: fd, signal: o.signal }, o.recordType === undefined);
+    async upload(file, o = {}) {
+      const strategy = o.strategy ?? 'form';
+      if (strategy === 'form') return formUpload(file, o);
+      if (strategy === 'direct') return uploadDirect(file, o);
+      if (strategy === 'multipart') return uploadMultipart(file, o);
+      if (strategy !== 'auto') throw bad("attachments.upload: strategy must be 'auto', 'form', 'direct' or 'multipart'");
+      const partSize = checkPartSize(o.partSize);
+      const src = toSource(file);
+      if (src === null) throw bad('attachments.upload: file must be a Blob, Uint8Array, ArrayBuffer, async iterable or ReadableStream');
+      if (src.size === null || src.size > partSize * 2) return uploadMultipart(file, o);
+      if ((o.directUpload ?? options.directUpload) === true) return uploadDirect(file, o);
+      return formUpload(file, o);
     },
+
+    uploadDirect,
+    uploadMultipart,
 
     cloneTemp(id, o = {}) {
       const body = clean({
