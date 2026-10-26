@@ -80,6 +80,8 @@ export interface CapabilitiesOptions {
 }
 
 const cache = new WeakMap<Api, Capabilities | 'unknown'>();
+/** One shared read per client for concurrent signal-less callers. */
+const inflight = new WeakMap<Api, Promise<Capabilities | 'unknown'>>();
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -110,6 +112,9 @@ function fromDocument(doc: Record<string, unknown>, paths: string[], rpcPrefix: 
  * `GET docs/openapi.json` per call; the result is cached per client for the client's lifetime, `refresh: true`
  * reads it again).
  *
+ * Concurrent calls without a `signal` share one in-flight read (a `refresh: true` call starts a new one, which
+ * later callers join); a call with a `signal` always reads on its own.
+ *
  * Resolves `'unknown'` (never throws) when the docs are private (404) or the host is unreachable (network
  * failure or timeout), and when the body is not an OpenAPI document. Only the private-docs `'unknown'` is
  * cached. Any other failure (401, 403, 5xx...) is rethrown as `SpApiError` with `module: 'docs'`; an abort
@@ -123,9 +128,22 @@ export async function capabilities(api: Api, o: CapabilitiesOptions = {}): Promi
     const hit = cache.get(api);
     if (hit !== undefined) return hit;
   }
+  // A caller with a signal reads on its own, so its abort never reaches other callers.
+  if (o.signal !== undefined) return read(api, o.signal);
+  const pending = o.refresh === true ? undefined : inflight.get(api);
+  if (pending !== undefined) return pending;
+  const p = read(api, undefined).finally(() => {
+    if (inflight.get(api) === p) inflight.delete(api);
+  });
+  inflight.set(api, p);
+  return p;
+}
+
+/** One read of the document; caches the result (see `capabilities`). */
+async function read(api: Api, signal: AbortSignal | undefined): Promise<Capabilities | 'unknown'> {
   let doc: unknown;
   try {
-    doc = await docs(api).openapi({ signal: o.signal });
+    doc = await docs(api).openapi({ signal });
   } catch (e) {
     if (isSpApiError(e) && e.code === 'module_disabled') {
       cache.set(api, 'unknown');

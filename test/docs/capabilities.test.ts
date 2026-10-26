@@ -199,6 +199,57 @@ describe('capabilities', () => {
     expect(auth.calls).toHaveLength(2);
   });
 
+  it('concurrent calls without a signal share one fetch', async () => {
+    const { api, calls } = setup(() => okDoc(docWith('rpc', { audit: true })));
+    const results = await Promise.all(Array.from({ length: 5 }, () => capabilities(api)));
+    expect(calls).toHaveLength(1);
+    for (const r of results) expect((r as Capabilities).audit).toBe(true);
+    // settled: the next refresh reads again
+    await capabilities(api, { refresh: true });
+    expect(calls).toHaveLength(2);
+  });
+
+  it('a shared read that fails is not cached and every waiter sees the failure', async () => {
+    let status = 500;
+    const { api, calls } = setup(() => (status === 500 ? new Response('{}', { status }) : okDoc(docWith('rpc', {}))));
+    const all = await Promise.allSettled([capabilities(api), capabilities(api), capabilities(api)]);
+    expect(calls).toHaveLength(1);
+    expect(all.every((r) => r.status === 'rejected')).toBe(true);
+    status = 200;
+    expect(await capabilities(api)).not.toBe('unknown');
+    expect(calls).toHaveLength(2);
+  });
+
+  it('a transient network unknown from a shared read is not cached', async () => {
+    let fail = true;
+    const { api, calls } = setup(() => {
+      if (fail) throw new TypeError('offline');
+      return okDoc(docWith('rpc', {}));
+    });
+    expect(await Promise.all([capabilities(api), capabilities(api)])).toEqual(['unknown', 'unknown']);
+    expect(calls).toHaveLength(1);
+    fail = false;
+    expect(await capabilities(api)).not.toBe('unknown');
+  });
+
+  it('callers with a signal read on their own; an abort does not reach the others', async () => {
+    const ac = new AbortController();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const fetchFn = (async (_u: RequestInfo | URL, init?: RequestInit) => {
+      await gate;
+      if (init?.signal?.aborted === true) throw init.signal.reason;
+      return okDoc(docWith('rpc', { audit: true }));
+    }) as typeof fetch;
+    const api = createApi({ baseUrl: 'https://host.test/api/v2', fetch: fetchFn });
+    const shared = capabilities(api);
+    const own = capabilities(api, { signal: ac.signal });
+    ac.abort(new Error('stop'));
+    release();
+    await expect(own).rejects.toThrow('stop');
+    expect(((await shared) as Capabilities).audit).toBe(true);
+  });
+
   it('honours signal (an abort is rethrown, not reported as unknown)', async () => {
     const ac = new AbortController();
     const reason = new Error('stop');

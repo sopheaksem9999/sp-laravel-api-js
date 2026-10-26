@@ -1,5 +1,5 @@
 // The `sp-laravel-api` command line (Node only). `main` is exported for tests; bin entry is index.ts.
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { TypegenError, generateTypes } from './generate';
 
@@ -8,7 +8,7 @@ export interface CliIo {
   stdout(text: string): void;
   stderr(text: string): void;
   readFile(path: string): string;
-  /** Writes the whole file at once, creating parent directories. */
+  /** Writes the whole file (to a temporary sibling, then renamed over `path`), creating parent directories. */
   writeFile(path: string, text: string): void;
   fetch: typeof fetch;
   env: Record<string, string | undefined>;
@@ -20,7 +20,14 @@ const nodeIo: CliIo = {
   readFile: (p) => readFileSync(p, 'utf8'),
   writeFile: (p, t) => {
     mkdirSync(dirname(p), { recursive: true });
-    writeFileSync(p, t);
+    const tmp = `${p}.tmp-${process.pid}`;
+    try {
+      writeFileSync(tmp, t);
+      renameSync(tmp, p);
+    } catch (e) {
+      rmSync(tmp, { force: true });
+      throw e;
+    }
   },
   fetch: (...args) => globalThis.fetch(...args),
   env: process.env,
@@ -37,9 +44,11 @@ Options:
   --file <path>           Read a local JSON export instead (works offline; use it when the
                           docs are private: php artisan sp-laravel-api:export-openapi)
   --out <path>            File to write (overwritten only after generation succeeded)
-  --header 'Name: value'  Extra request header for --url (repeatable)
+  --header 'Name: value'  Extra request header for --url (repeatable); put credentials
+                          here or in SP_API_TOKEN, never in the URL
   --tenant <id>           Tenant header value for --url
   --tenant-header <name>  Tenant header name (default X-Tenant-ID)
+  --timeout <seconds>     Give up on --url after this long (default 30)
   -h, --help              Show this help
 
 Environment:
@@ -59,12 +68,14 @@ interface Args {
   headers: Array<[string, string]>;
   tenant?: string;
   tenantHeader: string;
+  timeoutMs: number;
 }
 
-const VALUE_FLAGS = new Set(['--url', '--file', '--out', '--header', '--tenant', '--tenant-header']);
+const VALUE_FLAGS = new Set(['--url', '--file', '--out', '--header', '--tenant', '--tenant-header', '--timeout']);
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 function parse(argv: string[]): Args {
-  const args: Args = { help: false, headers: [], tenantHeader: 'X-Tenant-ID' };
+  const args: Args = { help: false, headers: [], tenantHeader: 'X-Tenant-ID', timeoutMs: DEFAULT_TIMEOUT_MS };
   const rest = [...argv];
   if (rest.length === 0) throw new UsageError('missing command (expected "typegen")');
   if (rest[0] === '--help' || rest[0] === '-h') return { ...args, help: true };
@@ -96,6 +107,12 @@ function parse(argv: string[]): Args {
       case '--tenant-header':
         args.tenantHeader = value;
         break;
+      case '--timeout': {
+        const secs = Number(value);
+        if (!Number.isFinite(secs) || secs <= 0) throw new UsageError('--timeout must be a positive number of seconds');
+        args.timeoutMs = Math.ceil(secs * 1000);
+        break;
+      }
       case '--header': {
         // The value may be a credential: never echo it.
         const colon = value.indexOf(':');
@@ -116,6 +133,10 @@ function parse(argv: string[]): Args {
       throw new UsageError('--url is not an absolute URL');
     }
     if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new UsageError('--url must be http or https');
+    // Never echo them: the message names the alternatives only.
+    if (u.username !== '' || u.password !== '') {
+      throw new UsageError('--url must not contain credentials; use --header or SP_API_TOKEN');
+    }
   }
   return args;
 }
@@ -146,10 +167,12 @@ async function load(args: Args, io: CliIo): Promise<string> {
   if (args.tenant !== undefined) headers.set(args.tenantHeader, args.tenant);
   for (const [name, value] of args.headers) headers.set(name, value);
   let res: Response;
+  const signal = AbortSignal.timeout(args.timeoutMs);
   try {
-    res = await io.fetch(url, { method: 'GET', headers });
+    res = await io.fetch(url, { method: 'GET', headers, signal });
   } catch {
     // The underlying message can carry the URL (and its query); it is not printed.
+    if (signal.aborted) throw new TypegenError(`could not fetch ${safeUrl(url)}: timed out after ${args.timeoutMs / 1000} s`);
     throw new TypegenError(`could not fetch ${safeUrl(url)} (network error)`);
   }
   if (!res.ok) {
@@ -162,6 +185,7 @@ async function load(args: Args, io: CliIo): Promise<string> {
   try {
     return await res.text();
   } catch {
+    if (signal.aborted) throw new TypegenError(`could not fetch ${safeUrl(url)}: timed out after ${args.timeoutMs / 1000} s`);
     throw new TypegenError(`could not read the response from ${safeUrl(url)}`);
   }
 }

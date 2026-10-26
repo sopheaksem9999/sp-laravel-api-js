@@ -2,7 +2,7 @@
 
 Typed JavaScript client for the [`sopheak/sp-laravel-api`](https://packagist.org/packages/sopheak/sp-laravel-api) Laravel package. ESM and CJS, no runtime dependencies, runs in browsers, edge runtimes and Node 20+.
 
-This release (0.1) ships the core: `createApi`, `table()`, `api.fn()` / `api.rpc()`, the query serializer, pages and `iterate`, query-cache keys, and one error type. Feature modules (bulk, attachments, and so on) arrive in later releases; see [Modules](#modules).
+It ships the core (`createApi`, `table()`, `api.fn()` / `api.rpc()`, the query serializer, pages and `iterate`, query-cache keys, and one error type), seven feature modules as subpath imports (`bulk`, `attachments`, `audit`, `permissions`, `webhooks`, `realtime`, `docs`; see [Modules](#modules)), and the Node-only `sp-laravel-api typegen` CLI.
 
 ## Install
 
@@ -418,7 +418,7 @@ const api = createApi<Tables>({ baseUrl: '/api/v2' });
 const invoice = await api.table('invoices').get(7); // typed as InvoicesRead, no generic
 ```
 
-The CLI (Node 20+) emits an interface per `{Name}Read` / `{Name}Write` schema and `interface Tables`; the output is deterministic. `--header 'Name: value'` (repeatable), `SP_API_TOKEN` (sent as a bearer token) and `--tenant <id>` add request headers for `--url`. Exit codes: 0 ok, 1 usage, 2 failure; errors never print tokens or headers. Private docs answer 404 to any token, so use `--file`. The backend marks only non-nullable columns as `required` and emits no `nullable` flag, so optional and nullable fields are approximate, and computed attributes are not in the schema (add them to your type and list them in `select`). See [src/docs/README.md](src/docs/README.md).
+The CLI (Node 20+) emits an interface per `{Name}Read` / `{Name}Write` schema and `interface Tables`; the output is deterministic. Options for `--url`: `--header 'Name: value'` (repeatable), `SP_API_TOKEN` (sent as a bearer token), `--tenant <id>` (with `--tenant-header <name>`, default `X-Tenant-ID`) and `--timeout <seconds>` (default 30). Credentials in the URL itself are refused. Exit codes: 0 ok, 1 usage, 2 failure (including a timeout); errors never print tokens or headers. Private docs answer 404 to any token, so use `--file`. The backend marks only non-nullable columns as `required` and emits no `nullable` flag, so every other column is typed `name?: T | null` (safe, if sometimes wider than the column), `id` is always present on rows, JSON columns are `unknown`, and computed attributes are not in the schema (add them to your type and list them in `select`). A table name missing from `Tables` falls back to `Table<unknown>` rather than failing to compile, and the modules (`bulk` etc.) type writes with the read type. See [src/docs/README.md](src/docs/README.md).
 
 ## Backend compatibility
 

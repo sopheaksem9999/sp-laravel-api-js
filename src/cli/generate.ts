@@ -65,6 +65,18 @@ function union(parts: string[]): string {
   return unique.join(' | ');
 }
 
+/** `t | null`, unless `t` is `unknown` or already ends in `null`. */
+function withNull(t: string): string {
+  return t === 'unknown' || t.split(' | ').includes('null') ? t : `${t} | null`;
+}
+
+/** How a `{Name}Read` / `{Name}Write` table schema is emitted (see `Generator.members`). */
+interface TableMode {
+  kind: 'read' | 'write';
+  /** Properties added from the full `{Name}` schema (only for those the table schema lacks). */
+  extra?: Schema;
+}
+
 /** Wraps a type that would mis-parse as an array element or intersection member. */
 const group = (t: string): string => (/[|&]/.test(t) && !/^[{(]/.test(t) ? `(${t})` : t);
 
@@ -80,9 +92,8 @@ class Generator {
   /** The TypeScript type of a schema. `indent` is the indentation of the line the type starts on. */
   type(schema: unknown, indent: string, omitReadOnly = false): string {
     if (!isRecord(schema)) return 'unknown';
-    const nullable = schema.nullable === true;
     const t = this.baseType(schema, indent, omitReadOnly);
-    return nullable && t !== 'unknown' && !t.split(' | ').includes('null') ? `${t} | null` : t;
+    return schema.nullable === true ? withNull(t) : t;
   }
 
   private ref(ref: unknown): string {
@@ -135,9 +146,13 @@ class Generator {
     }
   }
 
-  /** Property lines of an object schema, sorted by name. */
-  members(schema: Schema, indent: string, omitReadOnly: boolean): string[] {
-    const props = isRecord(schema.properties) ? schema.properties : {};
+  /**
+   * Property lines of an object schema, sorted by name. With `table` (a `{Name}Read` / `{Name}Write` schema),
+   * the backend's conventions apply: `required` means "non-nullable column", so every other property is
+   * `name?: T | null`; `id` is never optional on a read row; `table.extra` adds properties (the timestamps).
+   */
+  members(schema: Schema, indent: string, omitReadOnly: boolean, table?: TableMode): string[] {
+    const props: Schema = { ...(table?.extra ?? {}), ...(isRecord(schema.properties) ? schema.properties : {}) };
     const required = new Set(Array.isArray(schema.required) ? schema.required.filter((r): r is string => typeof r === 'string') : []);
     const lines: string[] = [];
     for (const name of Object.keys(props).sort(byKey)) {
@@ -145,10 +160,17 @@ class Generator {
       if (omitReadOnly && isRecord(p) && p.readOnly === true) continue;
       const doc = isRecord(p) ? this.jsdoc(p) : '';
       if (doc !== '') lines.push(`${indent}/** ${doc} */`);
-      lines.push(`${indent}${propKey(name)}${required.has(name) ? '' : '?'}: ${this.type(p, indent)};`);
+      let t = this.type(p, indent);
+      let optional = !required.has(name);
+      if (table !== undefined && optional) {
+        if (table.kind === 'read' && name === 'id') optional = false;
+        else t = withNull(t);
+      }
+      lines.push(`${indent}${propKey(name)}${optional ? '?' : ''}: ${t};`);
     }
     const extra = this.additional(schema, indent);
-    if (extra !== null) lines.push(`${indent}[key: string]: ${extra};`);
+    // With named properties a typed index signature would have to cover them all: widen it to unknown.
+    if (extra !== null) lines.push(`${indent}[key: string]: ${Object.keys(props).length > 0 ? 'unknown' : extra};`);
     return lines;
   }
 
@@ -163,8 +185,9 @@ class Generator {
   private object(schema: Schema, indent: string, omitReadOnly: boolean): string {
     const props = isRecord(schema.properties) ? Object.keys(schema.properties) : [];
     if (props.length === 0) {
+      // A bare `type: object` is how the backend documents a JSON column, which may hold any JSON value.
       const extra = this.additional(schema, indent);
-      return `Record<string, ${extra ?? 'unknown'}>`;
+      return extra === null ? 'unknown' : `Record<string, ${extra}>`;
     }
     const inner = this.members(schema, `${indent}  `, omitReadOnly);
     // Short members without comments stay on one line.
@@ -185,7 +208,7 @@ class Generator {
   }
 
   /** A top-level declaration for one named schema. */
-  declaration(name: string, omitReadOnly: boolean): string {
+  declaration(name: string, omitReadOnly: boolean, table?: TableMode): string {
     const schema = this.schemas[name];
     const id = ident(name);
     const doc = isRecord(schema) ? this.jsdoc(schema) : '';
@@ -194,7 +217,7 @@ class Generator {
       const isObject = schema.type === 'object' || (schema.type === undefined && isRecord(schema.properties));
       const props = isRecord(schema.properties) ? Object.keys(schema.properties) : [];
       if (isObject && props.length > 0 && schema.allOf === undefined && schema.oneOf === undefined && schema.anyOf === undefined) {
-        return `${head}export interface ${id} {\n${this.members(schema, '  ', omitReadOnly).join('\n')}\n}\n`;
+        return `${head}export interface ${id} {\n${this.members(schema, '  ', omitReadOnly, table).join('\n')}\n}\n`;
       }
     }
     return `${head}export type ${id} = ${this.type(schema, '', omitReadOnly)};\n`;
@@ -241,9 +264,12 @@ function tableNames(bases: string[], paths: Record<string, unknown>): Map<string
  * `{Name}Read` / `{Name}Write` component schema pair, every schema they reference, and
  * `interface Tables { <table>: { read: <Name>Read; write: <Name>Write } }` for `createApi<Tables>()`.
  *
- * Output is deterministic (sorted, no timestamps). Optional (`?`) follows each schema's `required`;
- * `| null` follows `nullable: true` or a `'null'` type. `readOnly` properties are left out of the `Write`
- * types (the backend ignores them on write). Throws `TypegenError` for anything that is not such a document.
+ * Output is deterministic (sorted, no timestamps). In the table schemas a property outside `required` is
+ * `name?: T | null` (the backend's `required` means "non-nullable column"; it emits no `nullable` flag), `id`
+ * is never optional in `{Name}Read`, and `{Name}Read` gains `created_at` / `updated_at` from the full `{Name}`
+ * schema. Elsewhere optional follows `required` and `| null` follows `nullable: true` or a `'null'` type.
+ * `readOnly` properties are left out of the `Write` types (the backend ignores them on write). Throws
+ * `TypegenError` for anything that is not such a document, an unresolved `$ref` or a name collision.
  */
 export function generateTypes(doc: unknown): string {
   if (!isRecord(doc) || (typeof doc.openapi !== 'string' && typeof doc.swagger !== 'string')) {
@@ -264,11 +290,16 @@ export function generateTypes(doc: unknown): string {
   const blocks: string[] = [];
   const emitted = new Set<string>();
   for (const base of bases) {
-    for (const suffix of ['Read', 'Write'] as const) {
-      const name = base + suffix;
-      emitted.add(name);
-      blocks.push(gen.declaration(name, suffix === 'Write'));
-    }
+    // Rows carry the timestamps that `{Name}Read` leaves out: take them from the full `{Name}` schema when it
+    // documents them (OpenApiService::tableSchema keeps created_at / updated_at; tableSchemaRead drops them).
+    const full = schemas[base];
+    const fullProps = isRecord(full) && isRecord(full.properties) ? full.properties : {};
+    const extra: Schema = {};
+    for (const ts of ['created_at', 'updated_at']) if (fullProps[ts] !== undefined) extra[ts] = fullProps[ts];
+    emitted.add(`${base}Read`);
+    blocks.push(gen.declaration(`${base}Read`, false, { kind: 'read', extra }));
+    emitted.add(`${base}Write`);
+    blocks.push(gen.declaration(`${base}Write`, true, { kind: 'write' }));
   }
   // Schemas reached through $ref, until no new reference appears (references can chain and cycle).
   const extraBlocks = new Map<string, string>();
@@ -282,6 +313,17 @@ export function generateTypes(doc: unknown): string {
   }
   for (const name of [...extraBlocks.keys()].sort(byKey)) blocks.push(extraBlocks.get(name) as string);
 
+  // Two schemas mapping to one identifier (or to `Tables`) would produce a file that does not compile.
+  const owners = new Map<string, string>([['Tables', '(the generated Tables interface)']]);
+  for (const name of [...emitted].sort(byKey)) {
+    const id = ident(name);
+    const other = owners.get(id);
+    if (other !== undefined) {
+      throw new TypegenError(`name collision: schema ${quote(name)} and ${other.startsWith('(') ? other : `schema ${quote(other)}`} both generate ${id}`);
+    }
+    owners.set(id, name);
+  }
+
   const rows = [...tables.entries()]
     .map(([base, table]) => ({ table, base }))
     .sort((a, b) => byKey(a.table, b.table))
@@ -293,7 +335,7 @@ export function generateTypes(doc: unknown): string {
   const source = `// Source: ${title === '' ? 'OpenAPI document' : title} (OpenAPI ${commentText(version)}).`;
 
   return [
-    `${HEADER}\n${source}\n// Optional (?) follows each schema's \`required\`; sp-laravel-api marks only non-nullable columns as required.\n`,
+    `${HEADER}\n${source}\n// Table columns not in \`required\` (sp-laravel-api: nullable columns) are typed \`name?: T | null\`.\n`,
     ...blocks,
     `/** Table name -> row (\`read\`) and write (\`write\`) types. Use as \`createApi<Tables>(config)\`. */\nexport interface Tables {\n${rows.join('\n')}\n}\n`,
   ].join('\n');

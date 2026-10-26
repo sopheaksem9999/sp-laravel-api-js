@@ -1,5 +1,5 @@
 // Node-only: the typegen CLI (excluded from the edge-runtime project).
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -50,16 +50,32 @@ describe('generateTypes on the sample (backend-shaped) document', () => {
 
   it('the generated types are what the fixture says (compile-time)', () => {
     expectTypeOf<InvoicesRead['status']>().toEqualTypeOf<'draft' | 'open' | 'paid'>();
-    // not in `required` -> optional; the backend emits no `nullable` marker, so no `| null`
-    expectTypeOf<InvoicesRead['notes']>().toEqualTypeOf<string | undefined>();
+    // not in `required` = a nullable column (the backend emits no `nullable` marker): optional AND nullable
+    expectTypeOf<InvoicesRead['notes']>().toEqualTypeOf<string | null | undefined>();
+    expectTypeOf<InvoicesWrite['notes']>().toEqualTypeOf<string | null | undefined>();
     expectTypeOf<InvoicesRead['total']>().toEqualTypeOf<number>();
     expectTypeOf<InvoicesRead['is_paid']>().toEqualTypeOf<boolean>();
-    expectTypeOf<InvoicesRead['issued_on']>().toEqualTypeOf<string | undefined>();
-    expectTypeOf<InvoicesRead['meta']>().toEqualTypeOf<Record<string, unknown> | undefined>();
+    expectTypeOf<InvoicesRead['issued_on']>().toEqualTypeOf<string | null | undefined>();
+    // `id` is never in `required` but always on a row
+    expectTypeOf<InvoicesRead['id']>().toEqualTypeOf<number>();
+    // timestamps come from the full `Invoices` schema
+    expectTypeOf<InvoicesRead['created_at']>().toEqualTypeOf<string | null | undefined>();
+    expectTypeOf<InvoicesRead['updated_at']>().toEqualTypeOf<string | null | undefined>();
+    expectTypeOf<InvoicesWrite>().not.toHaveProperty('created_at');
+    // JSON columns (bare `type: object`) may hold any JSON value
+    expectTypeOf<InvoicesRead['meta']>().toEqualTypeOf<unknown>();
     // readOnly (columnWriteDisabled) properties are left out of the write type
     expectTypeOf<InvoicesWrite>().not.toHaveProperty('total');
     expectTypeOf<InvoicesWrite>().not.toHaveProperty('id');
-    expectTypeOf<Sp_audit_logsRead['old_data']>().toEqualTypeOf<Record<string, unknown> | undefined>();
+    expectTypeOf<Sp_audit_logsRead['old_data']>().toEqualTypeOf<unknown>();
+  });
+
+  it('a nullable column can be cleared and must be null-checked (sound in the safe direction)', () => {
+    const api = createApi<Tables>({ baseUrl: 'https://x.test' });
+    expectTypeOf(api.table('invoices').patch).toBeCallableWith(1, { notes: null });
+    expectTypeOf(api.table('invoices').get).toBeCallableWith(1);
+    const row = {} as InvoicesRead;
+    expectTypeOf(api.table('invoices').get).toBeCallableWith(row.id);
   });
 
   it('createApi<Tables>() types api.table(name), including patch (which the doc may not list)', () => {
@@ -79,28 +95,83 @@ describe('generateTypes OpenAPI mapping', () => {
   const pair = (read: Record<string, unknown>, write: Record<string, unknown> = { type: 'object', properties: {} }) =>
     doc({ ThingsRead: read, ThingsWrite: write }, { '/api/things': { get: {} } });
 
-  it('nullable: true and type [..., "null"] -> | null; required -> not optional', () => {
+  it('table schemas: required -> T; not required -> ?: T | null; id required on read only; explicit null kept', () => {
     const out = generateTypes(
-      pair({
-        type: 'object',
-        required: ['a', 'b'],
-        properties: {
-          a: { type: 'string', nullable: true },
-          b: { type: ['integer', 'null'] },
-          c: { type: 'number' },
+      pair(
+        {
+          type: 'object',
+          required: ['a', 'b'],
+          properties: {
+            id: { type: 'integer' },
+            a: { type: 'string', nullable: true },
+            b: { type: ['integer', 'null'] },
+            c: { type: 'number' },
+          },
         },
-      }),
+        { type: 'object', properties: { id: { type: 'string' }, c: { type: 'number', nullable: true } } },
+      ),
     );
-    expect(out).toContain('  a: string | null;');
-    expect(out).toContain('  b: number | null;');
-    expect(out).toContain('  c?: number;');
+    const read = out.slice(out.indexOf('export interface ThingsRead'), out.indexOf('export interface ThingsWrite'));
+    const write = out.slice(out.indexOf('export interface ThingsWrite'), out.indexOf('export interface Tables'));
+    expect(read).toContain('  a: string | null;');
+    expect(read).toContain('  b: number | null;');
+    expect(read).toContain('  c?: number | null;');
+    expect(read).toContain('  id: number;');
+    expect(write).toContain('  id?: string | null;');
+    expect(write).toContain('  c?: number | null;');
+  });
+
+  it('other schemas: optional follows required, | null only for nullable: true or a null type', () => {
+    const other = generateTypes(
+      doc(
+        {
+          ThingsRead: { type: 'object', required: ['x'], properties: { x: { $ref: '#/components/schemas/Other' } } },
+          ThingsWrite: { type: 'object', properties: {} },
+          Other: {
+            type: 'object',
+            required: ['a'],
+            properties: { a: { type: 'string', nullable: true }, b: { type: ['integer', 'null'] }, c: { type: 'number' }, id: { type: 'integer' } },
+          },
+        },
+        { '/api/things': { get: {} } },
+      ),
+    );
+    expect(other).toContain('  x: Other;');
+    expect(other).toContain('  a: string | null;');
+    expect(other).toContain('  b?: number | null;');
+    expect(other).toContain('  c?: number;');
+    expect(other).toContain('  id?: number;');
+  });
+
+  it('{Name}Read gains created_at / updated_at from the full {Name} schema only when it has them', () => {
+    const ts = { type: 'string', format: 'date-time' };
+    const out = generateTypes(
+      doc(
+        {
+          Things: { type: 'object', properties: { id: { type: 'integer' }, created_at: ts, updated_at: ts } },
+          ThingsRead: { type: 'object', properties: { id: { type: 'integer' } } },
+          ThingsWrite: { type: 'object', properties: { name: { type: 'string' } } },
+          Plain: { type: 'object', properties: { id: { type: 'integer' } } },
+          PlainRead: { type: 'object', properties: { id: { type: 'integer' } } },
+          PlainWrite: { type: 'object', properties: { name: { type: 'string' } } },
+        },
+        { '/api/things': { get: {} } },
+      ),
+    );
+    const read = out.slice(out.indexOf('export interface ThingsRead'), out.indexOf('export interface ThingsWrite'));
+    expect(read).toContain('  /** format: date-time */\n  created_at?: string | null;');
+    expect(read).toContain('  updated_at?: string | null;');
+    const write = out.slice(out.indexOf('export interface ThingsWrite'), out.indexOf('export interface Tables'));
+    expect(write).not.toContain('created_at');
+    const plain = out.slice(out.indexOf('export interface PlainRead'), out.indexOf('export interface PlainWrite'));
+    expect(plain).not.toContain('created_at');
   });
 
   it('enums -> literal unions (strings quoted and escaped, numbers, null)', () => {
     const out = generateTypes(
       pair({ type: 'object', properties: { s: { type: 'string', enum: ["it's", 'b'] }, n: { enum: [1, 2, null] } } }),
     );
-    expect(out).toContain("  s?: 'it\\'s' | 'b';");
+    expect(out).toContain("  s?: 'it\\'s' | 'b' | null;");
     expect(out).toContain('  n?: 1 | 2 | null;');
   });
 
@@ -113,8 +184,8 @@ describe('generateTypes OpenAPI mapping', () => {
         Tag: { type: 'string', enum: ['x', 'y'] },
       }),
     );
-    expect(out).toContain('  owner?: User;');
-    expect(out).toContain('  tags?: Tag[];');
+    expect(out).toContain('  owner?: User | null;');
+    expect(out).toContain('  tags?: Tag[] | null;');
     expect(out).toContain('export interface User {');
     expect(out).toContain('  manager?: User;');
     expect(out).toContain("export type Tag = 'x' | 'y';");
@@ -145,14 +216,14 @@ describe('generateTypes OpenAPI mapping', () => {
         },
       }),
     );
-    expect(out).toContain('  free?: Record<string, unknown>;');
-    expect(out).toContain('  dict?: Record<string, number>;');
-    expect(out).toContain('  bag?: Record<string, unknown>;');
-    expect(out).toContain('  nested?: { x: boolean };');
-    expect(out).toContain('  list?: Array<string | null>;');
-    expect(out).toContain('  anyList?: unknown[];');
-    expect(out).toContain('  both?: { a?: string } & { b?: string };');
-    expect(out).toContain('  either?: string | number;');
+    expect(out).toContain('  free?: Record<string, unknown> | null;');
+    expect(out).toContain('  dict?: Record<string, number> | null;');
+    expect(out).toContain('  bag?: unknown;');
+    expect(out).toContain('  nested?: { x: boolean } | null;');
+    expect(out).toContain('  list?: Array<string | null> | null;');
+    expect(out).toContain('  anyList?: unknown[] | null;');
+    expect(out).toContain('  both?: { a?: string } & { b?: string } | null;');
+    expect(out).toContain('  either?: string | number | null;');
     expect(out).toContain('  /** no type */\n  mystery?: unknown;');
     expect(out).toContain('  weird?: unknown;');
   });
@@ -161,13 +232,61 @@ describe('generateTypes OpenAPI mapping', () => {
     const out = generateTypes(
       pair({ type: 'object', properties: { 'x-y': { type: 'string', format: 'date-time', description: 'When */ it happened' } } }),
     );
-    expect(out).toContain("  /** When *\\/ it happened (format: date-time) */\n  'x-y'?: string;");
+    expect(out).toContain("  /** When *\\/ it happened (format: date-time) */\n  'x-y'?: string | null;");
   });
 
   it('falls back to the naming convention when no path references the schemas', () => {
     const out = generateTypes(doc({ Order_linesRead: { type: 'object', properties: {} }, Order_linesWrite: { type: 'object', properties: {} } }));
     expect(out).toContain('  order_lines: { read: Order_linesRead; write: Order_linesWrite };');
-    expect(out).toContain('export type Order_linesRead = Record<string, unknown>;');
+    expect(out).toContain('export type Order_linesRead = unknown;');
+  });
+
+  it('properties plus typed additionalProperties widen the index signature to unknown (so it compiles)', () => {
+    const out = generateTypes(
+      doc(
+        {
+          ThingsRead: { type: 'object', properties: { m: { $ref: '#/components/schemas/Mixed' } } },
+          ThingsWrite: { type: 'object', properties: {} },
+          Mixed: { type: 'object', required: ['n'], properties: { n: { type: 'string' } }, additionalProperties: { type: 'integer' } },
+        },
+        { '/api/things': { get: {} } },
+      ),
+    );
+    expect(out).toContain('export interface Mixed {\n  n: string;\n  [key: string]: unknown;\n}');
+    const inline = generateTypes(pair({ type: 'object', properties: { o: { type: 'object', properties: { a: { type: 'string' } }, additionalProperties: { type: 'integer' } } } }));
+    expect(inline).toContain('  o?: { a?: string; [key: string]: unknown } | null;');
+  });
+
+  it('a referenced schema named Tables, or two names with one identifier, is a deterministic failure', () => {
+    const withTables = doc(
+      {
+        ThingsRead: { type: 'object', properties: { t: { $ref: '#/components/schemas/Tables' } } },
+        ThingsWrite: { type: 'object', properties: {} },
+        Tables: { type: 'string' },
+      },
+      { '/api/things': { get: {} } },
+    );
+    expect(() => generateTypes(withTables)).toThrow(TypegenError);
+    expect(() => generateTypes(withTables)).toThrow(/name collision: schema 'Tables' .* both generate Tables/);
+    const twins = doc(
+      {
+        ThingsRead: { type: 'object', properties: { a: { $ref: '#/components/schemas/A-B' }, b: { $ref: '#/components/schemas/A_B' } } },
+        ThingsWrite: { type: 'object', properties: {} },
+        'A-B': { type: 'string' },
+        A_B: { type: 'integer' },
+      },
+      { '/api/things': { get: {} } },
+    );
+    const msg = (() => {
+      try {
+        generateTypes(twins);
+        return '';
+      } catch (e) {
+        return (e as Error).message;
+      }
+    })();
+    expect(msg).toBe("name collision: schema 'A_B' and schema 'A-B' both generate A_B");
+    expect(msg.split('\n')).toHaveLength(1);
   });
 
   it('rejects input that is not an OpenAPI document or has no table schemas', () => {
@@ -234,6 +353,8 @@ describe('main (CLI)', () => {
     [['typegen', '--file', 'a.json', '--out', 'x.ts', '--bogus']],
     [['typegen', '--url', 'https://h/x', '--out', 'x.ts', '--header', 'no-colon-SECRET']],
     [['typegen', '--url', 'not a url', '--out', 'x.ts']],
+    [['typegen', '--url', 'https://h/x', '--out', 'x.ts', '--timeout', '0']],
+    [['typegen', '--url', 'https://h/x', '--out', 'x.ts', '--timeout', 'soon']],
   ])('usage error %j -> exit 1, one line, no stack', async (argv) => {
     expect(await main(argv, io())).toBe(1);
     expect(stderr.trim().split('\n')).toHaveLength(1);
@@ -285,7 +406,7 @@ describe('main (CLI)', () => {
   ])('%s -> exit 2, one line, no stack, no secrets', async (_name, respond, msg) => {
     const fetchFn = (async () => respond()) as typeof fetch;
     const code = await main(
-      ['typegen', '--url', 'https://user:SECRET-pw@h.test/d?token=SECRET-q', '--out', out, '--header', 'Authorization: Bearer SECRET-h'],
+      ['typegen', '--url', 'https://h.test/d?token=SECRET-q', '--out', out, '--header', 'Authorization: Bearer SECRET-h'],
       io({ fetch: fetchFn, env: { SP_API_TOKEN: 'SECRET-env' } }),
     );
     expect(code).toBe(2);
@@ -294,6 +415,39 @@ describe('main (CLI)', () => {
     expect(stderr).not.toContain('    at ');
     expect(stdout + stderr).not.toContain('SECRET');
     expect(() => readFileSync(out)).toThrow(); // nothing written
+  });
+
+  it('a --url with credentials is a usage error: no fetch, value never echoed', async () => {
+    let fetched = false;
+    const fetchFn = (async () => {
+      fetched = true;
+      return new Response('{}');
+    }) as typeof fetch;
+    const code = await main(['typegen', '--url', 'https://user:SECRET-pw@h.test/d', '--out', out], io({ fetch: fetchFn }));
+    expect(code).toBe(1);
+    expect(fetched).toBe(false);
+    expect(stderr).toMatch(/--header or SP_API_TOKEN/);
+    expect(stderr).not.toContain('SECRET');
+    expect(stderr).not.toContain('user');
+  });
+
+  it('--url times out (default 30 s, --timeout <seconds>) -> exit 2 "timed out"', async () => {
+    const seen: (AbortSignal | undefined)[] = [];
+    const hang = (async (_u: string | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        seen.push(init?.signal ?? undefined);
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason));
+      })) as typeof fetch;
+    const code = await main(['typegen', '--url', 'https://h.test/d', '--out', out, '--timeout', '0.02'], io({ fetch: hang }));
+    expect(code).toBe(2);
+    expect(stderr).toMatch(/timed out/);
+    expect(stderr.trim().split('\n')).toHaveLength(1);
+    expect(seen[0]).toBeInstanceOf(AbortSignal);
+  });
+
+  it('the write goes through a temporary file that does not remain', async () => {
+    expect(await main(['typegen', '--file', FIXTURE, '--out', out], io())).toBe(0);
+    expect(readdirSync(join(dir, 'types'))).toEqual(['sp-api.ts']);
   });
 
   it('--file that is missing or not JSON -> exit 2; the existing output is left untouched', async () => {
