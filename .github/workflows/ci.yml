@@ -36,21 +36,30 @@ jobs:
       - run: pnpm test:edge-canary
       - run: pnpm check
 
-  # Node 20 (the `engines` floor): runtime support only. `pnpm check` builds the package, runs publint / attw and the
-  # dist + bundle guards, and smoke-imports every entry as CJS and ESM on Node 20. The test suite is NOT run here
-  # (Vitest 5 requires Node >= 22.12); it runs on 22 and 24 above.
+  # Node 20 (the `engines` floor, `engines.node >=20`): no test suite here, because Vitest 5 needs Node >= 22.12 and
+  # pnpm 12 itself needs Node >= 22.13. So `pnpm check` (build, publint, attw and the guards) runs on Node 24, then
+  # the built package is checked on Node 20 with plain `node`: the dist, modules and bundle guards and the CJS + ESM
+  # smoke imports of every entry. The suite runs on 22 and 24 above.
   node20:
-    name: Node 20 (build + smoke imports)
+    name: Node 20 (build + guards + smoke imports)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: node --version
+      - run: node scripts/check-dist.mjs
+      - run: node scripts/check-modules.mjs
+      - run: node scripts/check-bundle.mjs
+      - run: node scripts/smoke-imports.mjs
 
   # Deno and Bun: the unit suite (vitest `node` project, its workers running on that runtime), then the built ESM
   # entries imported by file URL with a small end-to-end flow on a fake fetch.
