@@ -20,3 +20,5 @@ export type {
 } from './core/query-types';
 export { createRequester } from './core/request';
 export type { ApiAuth, ApiConfig, ApiResult, RequestOptions } from './core/request';
+export { makeTable } from './core/table';
+export type { CallOptions, Page, Table } from './core/table';
