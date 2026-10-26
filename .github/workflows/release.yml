@@ -19,7 +19,17 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
+      # Publishing requires `changeset version` to have run on the tagged commit: it bumps package.json and writes
+      # CHANGELOG.md from .changeset/*.md. Tag that commit as v<version>; a tag that does not match package.json fails here.
+      - name: Tag matches package.json version
+        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+      - run: pnpm lint
+      - run: pnpm typecheck
+      # Build first so the dist-based tests run instead of skipping.
+      - run: pnpm build
       - run: pnpm vitest run
+        env:
+          REQUIRE_DIST: '1'
       - run: pnpm check
       - run: npm publish --provenance --access public
         env:
