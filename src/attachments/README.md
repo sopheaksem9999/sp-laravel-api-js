@@ -75,7 +75,7 @@ const a = await att.uploadDirect(file, { visibility: 'private', contentType: 'im
 
 // Multipart (S3/R2 only): create-multipart-upload -> sign-multipart-part + PUT per part -> complete-multipart-upload
 const b = await att.uploadMultipart(bigFile, {
-  partSize: 8 * 1024 * 1024, // default 8 MiB; integer >= 5 MiB (MIN_PART_SIZE)
+  partSize: 8 * 1024 * 1024, // default 8 MiB; integer from 5 MiB (MIN_PART_SIZE) to 5 GiB (MAX_PART_SIZE)
   concurrency: 4,            // default 4
   visibility: 'private',
   signal: controller.signal,
@@ -104,8 +104,8 @@ Backend facts (verified against `AttachmentUploadController.php`, `AttachmentPre
 - **Local disk.** For a disk without presigned uploads `create-upload-url` answers `upload_url: null`, `method: 'POST'` and a `complete_endpoint`. That endpoint is the backend's own `complete-upload` route; the client posts the file to `…/complete-upload` built from its `baseUrl` (with auth and tenant), not to the server-built absolute URL, so proxies and base paths keep working.
 - **Signed URLs.** The PUT goes to the storage host with the runtime's `fetch` (`config.fetch ?? globalThis.fetch`) and only the headers the backend returned (PSR-7 arrays are joined with `, `; `Host` and `Content-Length` are left to the runtime). It never carries `Authorization`, the tenant header or `X-Request-ID`, and has no client timeout (use `signal`).
 - **Size limits.** A direct upload is still bounded by `max_upload_size` (default 10 MB): the backend checks the stored object at `complete-upload` and deletes an oversize one (422). Multipart uploads are bounded only by the bucket.
-- **Part size.** S3 needs at least 5 MiB per part (except the last) and at most 10,000 parts; the backend enforces no other minimum. `create-multipart-upload` returns `part_size` (the host's `min_multipart_size_bytes`, default 100 MiB, documented as the file size above which multipart is used); the client does not use it and keeps its own `partSize` (default 8 MiB).
-- **Expiry.** `expires_at` is a unix timestamp (seconds) `presign_ttl_seconds` (default 1800) after creation. The token, and so a resume, stops working after it.
+- **Part size.** S3 needs at least 5 MiB per part (except the last), at most 5 GiB per part and at most 10,000 parts; the backend enforces no other limit. The client rejects a `partSize` outside 5 MiB to 5 GiB with `unencodable_value`, and fails a stream that needs more than 10,000 parts: use a larger `partSize` for big streams. `create-multipart-upload` returns `part_size` (the host's `min_multipart_size_bytes`, default 100 MiB, documented as the file size above which multipart is used); the client does not use it and keeps its own `partSize` (default 8 MiB).
+- **Expiry.** `expires_at` is an integer unix timestamp in seconds, `presign_ttl_seconds` (default 1800) after creation. The token, and so a resume, stops working after it; `resume` with a state whose `expires_at` is already past fails at once with `unencodable_value`, before any request.
 - **404s.** Only the create/sign routes map a 404 to `module_disabled`. `complete-upload` answers 404 "File not found on disk" when the PUT did not land; that stays `not_found`.
 
 ### CORS
@@ -123,11 +123,15 @@ Browser uploads need a CORS policy on the bucket that allows `PUT` from your ori
 ### Abort, failures and resume
 
 - Any failure (sign, PUT, missing `ETag`, complete) cancels the other in-flight PUTs, calls `abort-multipart-upload` (best effort: its own failure is ignored) and rethrows the original `SpApiError`.
-- Aborting `signal` cancels in-flight PUTs, calls `abort-multipart-upload` and rejects with `signal.reason`. **Abort cancels the remote upload**; it is not a pause. To pause, stop the process (or drop the promise) and keep the last `onState` snapshot.
-- `onState(state)` receives a copy of `MultipartState = { key, upload_id, upload_token, expires_at, parts: [{ number, etag }] }` after the upload is created and after every part. Pass it back as `resume` with the same source and the same `partSize`: parts already in `state.parts` are skipped and only the rest is uploaded. `resume` needs a seekable source (`Blob`, `Uint8Array`, `ArrayBuffer`); a stream throws `unencodable_value`.
+- The cleanup `abort-multipart-upload` call has a 10 s timeout, so it cannot hold the rejection longer than that.
+- An `onState` or `onProgress` callback that throws fails the upload the same way (remote upload aborted, the thrown error rethrown).
+- Aborting `signal` (also while `create-multipart-upload` is answering) cancels in-flight PUTs, calls `abort-multipart-upload` and rejects with `signal.reason`. **Abort cancels the remote upload**; it is not a pause. To pause, stop the process (or drop the promise) and keep the last `onState` snapshot.
+- `onState(state)` receives a copy of `MultipartState = { key, upload_id, upload_token, expires_at, part_size, size, visibility, parts: [{ number, etag }] }` after the upload is created and after every part. Pass it back as `resume` with the same source: parts already in `state.parts` are skipped and only the rest is uploaded. `resume` needs a seekable source (`Blob`, `Uint8Array`, `ArrayBuffer`); a stream throws `unencodable_value`.
+- A resume reuses the recorded `part_size` and `visibility`, so the options need not repeat them. Everything that would make the parts not line up is rejected with `unencodable_value` before any request: an explicit `partSize` or `visibility` that differs from the state, a source whose size differs from `state.size` (`null` when the upload started from a stream), duplicate part numbers, or a part number outside `1..ceil(size / part_size)`. Without these checks a different part size would make S3 stitch overlapping byte ranges into a corrupt object.
 
 ```ts
 const saved = localStorage.getItem('upload');
+// part_size and visibility come from the saved state; a mismatching option is rejected.
 await att.uploadMultipart(file, {
   resume: saved ? (JSON.parse(saved) as MultipartState) : undefined,
   onState: (s) => localStorage.setItem('upload', JSON.stringify(s)),

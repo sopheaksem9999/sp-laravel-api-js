@@ -1,8 +1,8 @@
 // Direct and multipart upload (Task 27). Scripted fake fetch; runs in both vitest projects (no node: imports, no Buffer).
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { SpApiError, createApi } from '../../src';
 import type { ApiConfig } from '../../src';
-import { MIN_PART_SIZE, attachments } from '../../src/attachments';
+import { MAX_PART_SIZE, MIN_PART_SIZE, attachments } from '../../src/attachments';
 import type { AttachmentsOptions, MultipartState } from '../../src/attachments';
 
 const MiB = 1024 * 1024;
@@ -62,7 +62,9 @@ const defaults: Record<string, Handler> = {
 
 const putOk = (c: Call): Response => new Response(null, { status: 200, headers: { ETag: etag(c.part) } });
 
-function harness(o: { api?: Record<string, Handler>; put?: Handler; cfg?: Partial<ApiConfig>; mod?: AttachmentsOptions } = {}) {
+function harness(
+  o: { api?: Record<string, Handler>; put?: Handler; cfg?: Partial<ApiConfig>; mod?: AttachmentsOptions; ignoreAbort?: boolean } = {},
+) {
   const calls: Call[] = [];
   const handlers = { ...defaults, ...o.api };
   const put = o.put ?? putOk;
@@ -83,7 +85,7 @@ function harness(o: { api?: Record<string, Handler>; put?: Handler; cfg?: Partia
     calls.push(call);
     const h = external ? put : handlers[call.fn];
     if (h === undefined) throw new Error(`no handler for ${call.fn}`);
-    const signal = init?.signal;
+    const signal = o.ignoreAbort === true && external ? undefined : init?.signal;
     if (signal?.aborted === true) throw signal.reason;
     return await new Promise<Response>((resolve, reject) => {
       signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
@@ -454,6 +456,9 @@ describe('attachments.uploadMultipart resume, state and progress', () => {
     upload_id: 'UP-1',
     upload_token: TOKEN,
     expires_at: 1900000000,
+    part_size: PART,
+    size: null,
+    visibility: 'private',
     parts,
   });
 
@@ -768,5 +773,255 @@ describe("attachments.upload strategies", () => {
     const { att } = harness();
     const e = await spError(att.upload(bytes(1), { strategy: 'fast' as 'auto' }));
     expect(e.code).toBe('unencodable_value');
+  });
+});
+
+describe('attachments.uploadMultipart resume safety (fix round 1)', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const pattern = (n: number): Uint8Array<ArrayBuffer> => {
+    const b = new Uint8Array(n);
+    for (let i = 0; i < n; i++) b[i] = i % 251;
+    return b;
+  };
+
+  const saved = (over: Partial<MultipartState> = {}): MultipartState => ({
+    key: KEY,
+    upload_id: 'UP-1',
+    upload_token: TOKEN,
+    expires_at: 1900000000,
+    part_size: PART,
+    size: 2 * PART + 100,
+    visibility: 'public',
+    parts: [{ number: 1, etag: etag(1) }],
+    ...over,
+  });
+
+  it('emitted states carry part_size, size and visibility', async () => {
+    const seen: MultipartState[] = [];
+    const { att } = harness();
+    await att.uploadMultipart(bytes(PART + 1), { partSize: PART, visibility: 'public', onState: (s) => seen.push(s) });
+    for (const s of seen) expect(s).toMatchObject({ part_size: PART, size: PART + 1, visibility: 'public' });
+    const stream = harness();
+    const streamed: MultipartState[] = [];
+    async function* gen() {
+      yield bytes(10);
+    }
+    await stream.att.uploadMultipart(gen(), { onState: (s) => streamed.push(s) });
+    expect(streamed[0]).toMatchObject({ part_size: 8 * MiB, size: null, visibility: 'private' });
+  });
+
+  it('resume without partSize/visibility uses state.part_size and state.visibility, exact byte ranges', async () => {
+    const src = pattern(2 * PART + 100);
+    const { calls, att } = harness();
+    await att.uploadMultipart(src, { resume: saved() });
+    const puts = calls.filter((c) => c.fn === 'PUT');
+    expect(puts.map((c) => c.part)).toEqual([2, 3]);
+    const p2 = puts[0]!.rawBody as Uint8Array;
+    const p3 = puts[1]!.rawBody as Uint8Array;
+    expect(p2.byteLength).toBe(PART);
+    expect(p3.byteLength).toBe(100);
+    expect(Array.from(p2.subarray(0, 4))).toEqual(Array.from(src.subarray(PART, PART + 4)));
+    expect(Array.from(p3)).toEqual(Array.from(src.subarray(2 * PART)));
+    for (const c of calls.filter((x) => x.fn !== 'PUT')) expect(c.body?.visibility).toBe('public');
+  });
+
+  it('resume with an explicit different partSize is unencodable_value and makes no request', async () => {
+    const { calls, att } = harness();
+    const e = await spError(att.uploadMultipart(pattern(2 * PART + 100), { resume: saved(), partSize: 8 * MiB }));
+    expect(e.code).toBe('unencodable_value');
+    expect(e.message).toContain('partSize');
+    // the same explicit value is fine
+    await att.uploadMultipart(pattern(2 * PART + 100), { resume: saved(), partSize: PART });
+    expect(calls[0]!.fn).toBe('sign-multipart-part');
+  });
+
+  it('resume with a different visibility is unencodable_value', async () => {
+    const { calls, att } = harness();
+    const e = await spError(att.uploadMultipart(pattern(2 * PART + 100), { resume: saved(), visibility: 'private' }));
+    expect(e.code).toBe('unencodable_value');
+    expect(calls.length).toBe(0);
+  });
+
+  it('resume with a source of a different size is unencodable_value', async () => {
+    const { calls, att } = harness();
+    const e = await spError(att.uploadMultipart(pattern(2 * PART + 101), { resume: saved() }));
+    expect(e.code).toBe('unencodable_value');
+    expect(calls.length).toBe(0);
+  });
+
+  it('rejects duplicate, zero, negative, fractional and out-of-range part numbers', async () => {
+    const { calls, att } = harness();
+    const bad: MultipartState['parts'][] = [
+      [{ number: 1, etag: 'a' }, { number: 1, etag: 'b' }],
+      [{ number: 0, etag: 'a' }],
+      [{ number: -1, etag: 'a' }],
+      [{ number: 1.5, etag: 'a' }],
+      [{ number: 4, etag: 'a' }],
+    ];
+    for (const parts of bad) {
+      const e = await spError(att.uploadMultipart(pattern(2 * PART + 100), { resume: saved({ parts }) }));
+      expect(e.code).toBe('unencodable_value');
+    }
+    // without a recorded size, the part count comes from the source
+    const e = await spError(att.uploadMultipart(pattern(2 * PART + 100), { resume: saved({ size: null, parts: [{ number: 4, etag: 'a' }] }) }));
+    expect(e.code).toBe('unencodable_value');
+    expect(calls.length).toBe(0);
+  });
+
+  it('a state missing part_size/visibility is rejected', async () => {
+    const { att } = harness();
+    const old = { key: KEY, upload_id: 'UP-1', upload_token: TOKEN, expires_at: 1900000000, parts: [] } as unknown as MultipartState;
+    expect((await spError(att.uploadMultipart(bytes(10), { resume: old }))).code).toBe('unencodable_value');
+  });
+
+  it('an expired state (expires_at in seconds, in the past) fails fast with no request', async () => {
+    const { calls, att } = harness();
+    const past = Math.floor(Date.now() / 1000) - 1;
+    const e = await spError(att.uploadMultipart(pattern(2 * PART + 100), { resume: saved({ expires_at: past }) }));
+    expect(e.code).toBe('unencodable_value');
+    expect(e.message).toContain('expired');
+    expect(calls.length).toBe(0);
+  });
+
+  it('partSize above 5 GiB is unencodable_value', async () => {
+    const { calls, att } = harness();
+    expect(MAX_PART_SIZE).toBe(5 * 1024 * MiB);
+    const e = await spError(att.uploadMultipart(bytes(10), { partSize: MAX_PART_SIZE + 1 }));
+    expect(e.code).toBe('unencodable_value');
+    expect(calls.length).toBe(0);
+  });
+
+  it('an onState that throws after create fails the upload and aborts the remote upload once', async () => {
+    const boom = new Error('storage full');
+    const { calls, att } = harness();
+    const e = await rejection(
+      att.uploadMultipart(bytes(PART), {
+        partSize: PART,
+        onState: () => {
+          throw boom;
+        },
+      }),
+    );
+    expect(e).toBe(boom);
+    expect(calls.map((c) => c.fn)).toEqual(['create-multipart-upload', 'abort-multipart-upload']);
+  });
+
+  it('an abort fired while create-multipart-upload answers still aborts (no PUT)', async () => {
+    const ctl = new AbortController();
+    const reason = new Error('late abort');
+    const payload = JSON.stringify({
+      success: true,
+      data: { key: KEY, upload_id: 'UP-1', upload_token: TOKEN, expires_at: 1900000000 },
+    });
+    const { calls, att } = harness({
+      api: {
+        // The abort fires while the body is being read, after fetch resolved: request() returns the data anyway.
+        'create-multipart-upload': () =>
+          new Response(
+            new ReadableStream<Uint8Array>(
+              {
+                pull(c) {
+                  ctl.abort(reason);
+                  c.enqueue(new TextEncoder().encode(payload));
+                  c.close();
+                },
+              },
+              { highWaterMark: 0 },
+            ),
+            { status: 200 },
+          ),
+      },
+    });
+    const e = await rejection(att.uploadMultipart(bytes(PART), { partSize: PART, signal: ctl.signal }));
+    expect(e).toBe(reason);
+    expect(calls.some((c) => c.fn === 'PUT')).toBe(false);
+    expect(calls.filter((c) => c.fn === 'abort-multipart-upload').length).toBe(1);
+  });
+
+  it('the abort cleanup is bounded by a 10 s timeout', async () => {
+    vi.useFakeTimers();
+    const { calls, att } = harness({
+      put: () => new Response('boom', { status: 500 }),
+      api: { 'abort-multipart-upload': () => new Promise<Response>(() => undefined) },
+    });
+    let settled: unknown = 'pending';
+    const p = att.uploadMultipart(bytes(PART), { partSize: PART }).then(
+      () => 'resolved',
+      (x: unknown) => x,
+    );
+    void p.then((x) => {
+      settled = x;
+    });
+    await vi.advanceTimersByTimeAsync(9000);
+    expect(calls.some((c) => c.fn === 'abort-multipart-upload')).toBe(true);
+    expect(settled).toBe('pending');
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(settled).toBeInstanceOf(SpApiError);
+    expect((settled as SpApiError).status).toBe(500);
+  });
+
+  it('after a failure with concurrency > 1, no new part starts and a late finisher does not emit state', async () => {
+    const gate = deferred<void>();
+    const states: MultipartState[] = [];
+    const { calls, att } = harness({
+      ignoreAbort: true,
+      put: async (c) => {
+        if (c.part === 1) return new Response('boom', { status: 500 });
+        await gate.promise;
+        return putOk(c);
+      },
+    });
+    const p = rejection(att.uploadMultipart(bytes(4 * PART), { partSize: PART, concurrency: 2, onState: (s) => states.push(s) }));
+    await tick();
+    gate.resolve();
+    const e = await p;
+    expect((e as SpApiError).status).toBe(500);
+    expect(calls.filter((c) => c.fn === 'sign-multipart-part').map((c) => c.body?.part_number)).toEqual([1, 2]);
+    expect(states.length).toBe(1); // only the one after create
+  });
+
+  it('backpressure: a fast source is read at most concurrency + 1 parts ahead of the PUTs', async () => {
+    let yielded = 0;
+    async function* fast() {
+      for (let i = 0; i < 10; i++) {
+        yielded++;
+        yield bytes(PART);
+      }
+    }
+    const gates = [deferred<void>(), deferred<void>()];
+    const { att } = harness({
+      put: async (c) => {
+        if (c.part <= 2) await gates[c.part - 1]!.promise;
+        return putOk(c);
+      },
+    });
+    const p = att.uploadMultipart(fast(), { partSize: PART, concurrency: 2 });
+    await tick();
+    expect(yielded).toBeLessThanOrEqual(3);
+    gates[0]!.resolve();
+    gates[1]!.resolve();
+    await p;
+    expect(yielded).toBe(10);
+  });
+
+  it('removes its abort listener from the caller signal', async () => {
+    const ctl = new AbortController();
+    const added = new Set<unknown>();
+    const add = ctl.signal.addEventListener.bind(ctl.signal);
+    const remove = ctl.signal.removeEventListener.bind(ctl.signal);
+    ctl.signal.addEventListener = ((t: string, l: EventListenerOrEventListenerObject, opt?: AddEventListenerOptions) => {
+      added.add(l);
+      add(t, l, opt);
+    }) as AbortSignal['addEventListener'];
+    ctl.signal.removeEventListener = ((t: string, l: EventListenerOrEventListenerObject, opt?: EventListenerOptions) => {
+      added.delete(l);
+      remove(t, l, opt);
+    }) as AbortSignal['removeEventListener'];
+    const { att } = harness();
+    await att.uploadMultipart(bytes(2 * PART), { partSize: PART, signal: ctl.signal });
+    expect(added.size).toBe(0);
   });
 });

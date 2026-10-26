@@ -6,8 +6,12 @@ import type { Attachment, AttachmentId, UploadOptions } from './index';
 export const MIN_PART_SIZE = 5 * 1024 * 1024;
 /** Default multipart part size: 8 MiB (the spec does not fix one; chosen above S3's 5 MiB floor). */
 export const DEFAULT_PART_SIZE = 8 * 1024 * 1024;
+/** S3's maximum part size (5 GiB). */
+export const MAX_PART_SIZE = 5 * 1024 * 1024 * 1024;
 /** S3's maximum number of parts per upload. */
 export const MAX_PARTS = 10000;
+/** Upper bound for the best-effort `abort-multipart-upload` cleanup call. */
+const ABORT_CLEANUP_TIMEOUT_MS = 10000;
 
 const MODULE = 'attachments';
 const DIRECT_MODULE = 'attachments.direct_upload';
@@ -19,14 +23,23 @@ const DIRECT_MODULE = 'attachments.direct_upload';
 export type UploadSource = Blob | Uint8Array | ArrayBuffer | AsyncIterable<Uint8Array> | ReadableStream<Uint8Array>;
 
 /**
- * Everything needed to resume a multipart upload. `upload_token` is a credential (it authorises signing and
- * completing parts for this key): store it like a session token. `expires_at` is a unix timestamp in seconds.
+ * Everything needed to resume a multipart upload, as delivered by `onState`. `upload_token` is a credential (it
+ * authorises signing and completing parts for this key): store it like a session token.
+ *
+ * - `expires_at`: unix timestamp in **seconds**, as the backend returns it; a state already past it is rejected.
+ * - `part_size`, `size`, `visibility`: recorded so a resume cuts the same byte ranges and sends the same visibility
+ *   (the token is bound to the disk). On resume they are the defaults; an explicit, different `partSize` or
+ *   `visibility`, or a source of a different size, is rejected with `unencodable_value`. `size` is `null` when the
+ *   upload started from a stream.
  */
 export interface MultipartState {
   key: string;
   upload_id: string;
   upload_token: string;
   expires_at: number;
+  part_size: number;
+  size: number | null;
+  visibility: string;
   parts: { number: number; etag: string }[];
 }
 
@@ -46,7 +59,10 @@ export interface DirectUploadOptions extends UploadOptions {
 
 /** Options for `uploadMultipart`. */
 export interface MultipartUploadOptions extends DirectUploadOptions {
-  /** Bytes per part, an integer >= 5 MiB (`MIN_PART_SIZE`). Default 8 MiB. Keep it the same when resuming. */
+  /**
+   * Bytes per part, an integer from 5 MiB (`MIN_PART_SIZE`) to 5 GiB. Default 8 MiB (on resume: `resume.part_size`).
+   * At most 10,000 parts: use a larger partSize for big streams.
+   */
   partSize?: number;
   /** Parts uploaded at once, a positive integer. Default 4. */
   concurrency?: number;
@@ -54,7 +70,10 @@ export interface MultipartUploadOptions extends DirectUploadOptions {
   onProgress?: (p: UploadProgress) => void;
   /** Continue an upload from a saved `onState` snapshot (seekable sources only). */
   resume?: MultipartState;
-  /** Receives a fresh copy of the state after the upload is created and after every part completes. */
+  /**
+   * Receives a fresh copy of the state after the upload is created and after every part completes.
+   * A callback that throws fails the upload (the remote upload is aborted), like `onProgress`.
+   */
   onState?: (s: MultipartState) => void;
 }
 
@@ -103,10 +122,12 @@ export function toSource(file: unknown): Source | null {
   return null;
 }
 
-/** Validates `partSize` (integer >= 5 MiB); returns the default when unset. */
+/** Validates `partSize` (integer from 5 MiB to 5 GiB); returns the default when unset. */
 export function checkPartSize(v: number | undefined): number {
   if (v === undefined) return DEFAULT_PART_SIZE;
-  if (!Number.isInteger(v) || v < MIN_PART_SIZE) throw bad(`attachments: partSize must be an integer of at least ${MIN_PART_SIZE} bytes (5 MiB)`);
+  if (!Number.isInteger(v) || v < MIN_PART_SIZE || v > MAX_PART_SIZE) {
+    throw bad(`attachments: partSize must be an integer from ${MIN_PART_SIZE} (5 MiB) to ${MAX_PART_SIZE} (5 GiB) bytes`);
+  }
   return v;
 }
 
@@ -116,7 +137,11 @@ function checkConcurrency(v: number | undefined): number {
   return v;
 }
 
-function checkState(s: MultipartState): MultipartState {
+/**
+ * Validates a `resume` state against the call: shape, expiry, part size, visibility, source size and part numbers.
+ * Returns the copied state; its `part_size` and `visibility` are the ones to use.
+ */
+function checkState(s: MultipartState, o: { partSize?: number; visibility?: string }, sourceSize: number): MultipartState {
   const ok =
     typeof s === 'object' &&
     s !== null &&
@@ -124,9 +149,35 @@ function checkState(s: MultipartState): MultipartState {
     typeof s.upload_id === 'string' &&
     typeof s.upload_token === 'string' &&
     typeof s.expires_at === 'number' &&
+    Number.isFinite(s.expires_at) &&
+    typeof s.part_size === 'number' &&
+    (s.size === null || (Number.isInteger(s.size) && s.size >= 0)) &&
+    typeof s.visibility === 'string' &&
     Array.isArray(s.parts) &&
-    s.parts.every((p) => Number.isInteger(p?.number) && p.number >= 1 && typeof p.etag === 'string');
-  if (!ok) throw bad('attachments: resume must be a MultipartState { key, upload_id, upload_token, expires_at, parts }');
+    s.parts.every((p) => typeof p === 'object' && p !== null && typeof p.etag === 'string');
+  if (!ok) {
+    throw bad('attachments: resume must be a MultipartState { key, upload_id, upload_token, expires_at, part_size, size, visibility, parts }');
+  }
+  if (s.expires_at * 1000 <= Date.now()) throw bad('attachments: resume state has expired (expires_at is past); start a new upload');
+  const partSize = checkPartSize(s.part_size);
+  if (o.partSize !== undefined && checkPartSize(o.partSize) !== partSize) {
+    throw bad(`attachments: partSize ${o.partSize} differs from the resumed upload's part_size ${partSize}`);
+  }
+  if (o.visibility !== undefined && o.visibility !== s.visibility) {
+    throw bad(`attachments: visibility "${o.visibility}" differs from the resumed upload's visibility "${s.visibility}"`);
+  }
+  if (s.size !== null && s.size !== sourceSize) {
+    throw bad(`attachments: the source has ${sourceSize} bytes but the resumed upload has ${s.size}`);
+  }
+  const count = Math.max(1, Math.ceil(sourceSize / partSize));
+  const seen = new Set<number>();
+  for (const p of s.parts) {
+    if (!Number.isInteger(p.number) || p.number < 1 || p.number > count) {
+      throw bad(`attachments: resume part number ${String(p.number)} is outside 1..${count}`);
+    }
+    if (seen.has(p.number)) throw bad(`attachments: resume part number ${p.number} appears twice`);
+    seen.add(p.number);
+  }
   return copyState(s);
 }
 
@@ -135,6 +186,9 @@ const copyState = (s: MultipartState): MultipartState => ({
   upload_id: s.upload_id,
   upload_token: s.upload_token,
   expires_at: s.expires_at,
+  part_size: s.part_size,
+  size: s.size,
+  visibility: s.visibility,
   parts: s.parts.map((p) => ({ number: p.number, etag: p.etag })),
 });
 
@@ -256,9 +310,9 @@ interface SignedPart {
 
 /** Direct (presigned PUT, or local POST) and S3 multipart upload for `attachments(api)`. */
 export function directUploads(api: Api, path: (fn: string) => string) {
-  const call = async <T>(fn: string, body: unknown, signal: AbortSignal | undefined, feature: boolean): Promise<T> => {
+  const call = async <T>(fn: string, body: unknown, signal: AbortSignal | undefined, feature: boolean, timeoutMs?: number): Promise<T> => {
     // `feature`: create/sign routes have no lookup target; their only 404 is "direct upload disabled".
-    const r = await api.request<T>({ method: 'POST', path: path(fn), body, signal, module: DIRECT_MODULE, disabledOn404: feature });
+    const r = await api.request<T>({ method: 'POST', path: path(fn), body, signal, module: DIRECT_MODULE, disabledOn404: feature, timeoutMs });
     return r.data;
   };
 
@@ -342,20 +396,20 @@ export function directUploads(api: Api, path: (fn: string) => string) {
   }
 
   async function uploadMultipart(file: UploadSource, o: MultipartUploadOptions = {}): Promise<Attachment> {
-    const partSize = checkPartSize(o.partSize);
     const concurrency = checkConcurrency(o.concurrency);
     const src = toSource(file);
     if (src === null) throw bad('attachments.uploadMultipart: file must be a Blob, Uint8Array, ArrayBuffer, async iterable or ReadableStream');
     if (o.resume !== undefined && src.kind === 'stream') {
       throw bad('attachments.uploadMultipart: resume needs a seekable source (Blob, Uint8Array or ArrayBuffer)');
     }
-    const resumed = o.resume === undefined ? null : checkState(o.resume);
+    const resumed = o.resume === undefined || src.size === null ? null : checkState(o.resume, o, src.size);
+    const partSize = resumed?.part_size ?? checkPartSize(o.partSize);
     if (src.size !== null && Math.ceil(src.size / partSize) > MAX_PARTS) {
       throw bad(`attachments.uploadMultipart: more than ${MAX_PARTS} parts; use a larger partSize`);
     }
     if (o.signal?.aborted === true) throw o.signal.reason;
 
-    const visibility = o.visibility ?? 'private';
+    const visibility = resumed?.visibility ?? o.visibility ?? 'private';
     const filename = fileName(file, o.name);
     const folderId = str(o.folderId);
     const emitState = (s: MultipartState): void => o.onState?.(copyState(s));
@@ -369,8 +423,16 @@ export function directUploads(api: Api, path: (fn: string) => string) {
         o.signal,
         true,
       );
-      state = { key: r.key, upload_id: r.upload_id, upload_token: r.upload_token, expires_at: r.expires_at, parts: [] };
-      emitState(state);
+      state = {
+        key: r.key,
+        upload_id: r.upload_id,
+        upload_token: r.upload_token,
+        expires_at: r.expires_at,
+        part_size: partSize,
+        size: src.size,
+        visibility,
+        parts: [],
+      };
     }
     // The token is bound to key, disk (from visibility), tenant, upload id and expiry: send them identically.
     const token = { key: state.key, upload_id: state.upload_id, upload_token: state.upload_token, expires_at: state.expires_at };
@@ -378,11 +440,14 @@ export function directUploads(api: Api, path: (fn: string) => string) {
     const ctl = new AbortController();
     const onAbort = (): void => ctl.abort(o.signal?.reason);
     o.signal?.addEventListener('abort', onAbort, { once: true });
+    // The signal may have fired while `create-multipart-upload` was answering.
+    if (isAborted(o.signal)) onAbort();
     const done = new Set(state.parts.map((p) => p.number));
     const parts = partsOf(src, partSize, done);
     let failure: { e: unknown } | null = null;
 
     try {
+      if (resumed === null) emitState(state);
       let loaded = 0;
       if (src.size !== null) {
         for (const n of done) loaded += Math.max(0, Math.min(src.size, n * partSize) - (n - 1) * partSize);
@@ -455,7 +520,8 @@ export function directUploads(api: Api, path: (fn: string) => string) {
     } catch (e) {
       // Best-effort cleanup; never masks the original error.
       try {
-        await call<unknown>('abort-multipart-upload', { ...token, visibility }, undefined, false);
+        // Not tied to the caller's signal (it may be aborted), but bounded so it cannot hold the rejection long.
+        await call<unknown>('abort-multipart-upload', { ...token, visibility }, undefined, false, ABORT_CLEANUP_TIMEOUT_MS);
       } catch {
         // ignored
       }

@@ -4,7 +4,7 @@ import type { Where } from '../core/query-types';
 import { checkPartSize, directUploads, fileName, toSource } from './multipart';
 import type { DirectUploadOptions, MultipartUploadOptions, UploadSource } from './multipart';
 
-export { DEFAULT_PART_SIZE, MAX_PARTS, MIN_PART_SIZE } from './multipart';
+export { DEFAULT_PART_SIZE, MAX_PART_SIZE, MAX_PARTS, MIN_PART_SIZE } from './multipart';
 export type { DirectUploadOptions, MultipartState, MultipartUploadOptions, UploadProgress, UploadSource } from './multipart';
 
 const MODULE = 'attachments';
