@@ -6,8 +6,13 @@ import { serializeQuery } from './serialize';
 /** Supplies auth headers and, optionally, a recovery hook for 401 responses. */
 export interface ApiAuth {
   getHeaders(): Promise<Record<string, string>>;
-  /** Called once on a 401; resolve `true` to retry the request once with fresh headers. */
-  handleUnauthorized?(): Promise<boolean>;
+  /**
+   * Called once on a 401; resolve `true` to retry the request once with fresh
+   * headers. `failed.headers` are the headers sent on the failed attempt
+   * (lowercase keys), so the auth layer can tell whether the token was already
+   * replaced. Implementations may ignore the argument.
+   */
+  handleUnauthorized?(failed?: { headers: Record<string, string> }): Promise<boolean>;
 }
 
 /** Shared configuration for every request a client makes. */
@@ -149,7 +154,11 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
 
       if (failure !== null) {
         if (failure.status === 401 && attempt === 0 && cfg.auth?.handleUnauthorized !== undefined) {
-          if (await cfg.auth.handleUnauthorized()) {
+          const sent: Record<string, string> = {};
+          headers.forEach((v, k) => {
+            sent[k.toLowerCase()] = v;
+          });
+          if (await cfg.auth.handleUnauthorized({ headers: sent })) {
             if (isAborted(o.signal)) throw o.signal?.reason;
             continue;
           }

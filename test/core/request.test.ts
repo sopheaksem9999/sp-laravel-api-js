@@ -116,6 +116,39 @@ describe('createRequester', () => {
     expect(calls[1]?.headers.get('Authorization')).toBe('new');
   });
 
+  it('passes the headers sent on the failed attempt to handleUnauthorized, lowercase-keyed', async () => {
+    const seen: unknown[] = [];
+    const auth = {
+      getHeaders: async () => ({ Authorization: 'Bearer T1' }),
+      handleUnauthorized: async (failed?: { headers: Record<string, string> }) => {
+        seen.push(failed);
+        return false;
+      },
+    };
+    const { request } = setup([json({}, 401)], { auth, tenant: { header: 'X-Tenant', value: () => 5 } });
+    await expect(request({ method: 'GET', path: 'x', headers: { 'X-Extra': 'e' } })).rejects.toBeInstanceOf(SpApiError);
+    expect(seen).toHaveLength(1);
+    const headers = (seen[0] as { headers: Record<string, string> }).headers;
+    expect(headers.authorization).toBe('Bearer T1');
+    expect(headers['x-tenant']).toBe('5');
+    expect(headers['x-extra']).toBe('e');
+    expect(Object.keys(headers).every((k) => k === k.toLowerCase())).toBe(true);
+  });
+
+  it('still works with a zero-argument handleUnauthorized', async () => {
+    let token = 'old';
+    const auth = {
+      getHeaders: async () => ({ Authorization: token }),
+      handleUnauthorized: async (): Promise<boolean> => {
+        token = 'new';
+        return true;
+      },
+    };
+    const { request, calls } = setup([json({}, 401), ok()], { auth });
+    await expect(request({ method: 'GET', path: 'x' })).resolves.toMatchObject({ data: { id: 1 } });
+    expect(calls[1]?.headers.get('Authorization')).toBe('new');
+  });
+
   it('throws unauthenticated on a second 401 without looping', async () => {
     const handleUnauthorized = vi.fn(async () => true);
     const { request, calls } = setup([() => json({ message: 'no' }, 401)], {
