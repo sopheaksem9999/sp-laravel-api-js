@@ -50,6 +50,8 @@ const MODULE_MARKERS_BY_MODULE = {
     'complete-multipart-upload',
     'abort-multipart-upload',
   ],
+  audit: ['sp_audit_logs', 'field-timeline', 'field-stats'],
+  permissions: ['sp_roles', 'sp_permissions', '_delete'],
 };
 const MODULE_MARKERS = Object.values(MODULE_MARKERS_BY_MODULE).flat();
 const vacuous = [];
@@ -100,6 +102,20 @@ const attApi = core.createApi({ baseUrl: 'https://x.test', fetch: async () => ne
 const attThrown = await att.attachments(attApi).cloneTemp(1).catch((e) => e);
 if (!(attThrown instanceof core.SpApiError)) {
   console.error('check-dist: attachments.cjs throws an SpApiError that is not instanceof the main entry SpApiError (splitting off?)');
+  process.exit(1);
+}
+const aud = require(join(root, 'audit.cjs'));
+const audApi = core.createApi({ baseUrl: 'https://x.test', fetch: async () => new Response('{}', { status: 403 }) });
+const audThrown = await aud.audit(audApi).stats().catch((e) => e);
+if (!(audThrown instanceof core.SpApiError)) {
+  console.error('check-dist: audit.cjs throws an SpApiError that is not instanceof the main entry SpApiError (splitting off?)');
+  process.exit(1);
+}
+const perm = require(join(root, 'permissions.cjs'));
+const permApi = core.createApi({ baseUrl: 'https://x.test', fetch: async () => new Response('{}', { status: 403 }) });
+const permThrown = await perm.permissions(permApi).assign(1, [1]).catch((e) => e);
+if (!(permThrown instanceof core.SpApiError)) {
+  console.error('check-dist: permissions.cjs throws an SpApiError that is not instanceof the main entry SpApiError (splitting off?)');
   process.exit(1);
 }
 console.log('check-dist: ok');

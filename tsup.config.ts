@@ -6,6 +6,8 @@ export default defineConfig({
     index: 'src/index.ts',
     bulk: 'src/bulk/index.ts',
     attachments: 'src/attachments/index.ts',
+    audit: 'src/audit/index.ts',
+    permissions: 'src/permissions/index.ts',
   },
   // Share core code (SpApiError) between entries in CJS too, so `instanceof` works across subpaths.
   splitting: true,

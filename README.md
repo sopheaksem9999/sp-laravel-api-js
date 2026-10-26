@@ -224,14 +224,14 @@ const laravel = createApi({
 
 ## Modules
 
-The core is in 0.1. `bulk` and `attachments` are available as subpath imports; the other modules below are planned and are **not in this release**: their import paths do not exist yet, and importing them fails.
+The core is in 0.1. `bulk`, `attachments`, `audit` and `permissions` are available as subpath imports; the other modules below are planned and are **not in this release**: their import paths do not exist yet, and importing them fails.
 
 | Backend module | Import path | Status |
 |---|---|---|
 | `bulk_operations` | `@sopheak/sp-laravel-api/bulk` | available (see below) |
 | `attachments` | `@sopheak/sp-laravel-api/attachments` | available (see below) |
-| `audit` | `@sopheak/sp-laravel-api/audit` | coming in 0.2 |
-| `permissions` | `@sopheak/sp-laravel-api/permissions` | coming in 0.2 |
+| `audit` | `@sopheak/sp-laravel-api/audit` | available (see below) |
+| `permissions` | `@sopheak/sp-laravel-api/permissions` | available (see below) |
 | `webhooks` | `@sopheak/sp-laravel-api/webhooks` | coming in 0.2 |
 | Broadcasting | `@sopheak/sp-laravel-api/realtime` | coming in 0.2 |
 | `api_docs` | `@sopheak/sp-laravel-api/docs` | coming in 0.2 |
@@ -264,6 +264,32 @@ const big = await att.uploadMultipart(video, { onProgress: ({ loaded, total }) =
 ```
 
 `upload`, `uploadDirect`, `uploadMultipart`, `cloneTemp`, `viewUrl`, `downloadUrl`, `forRecord(table, id)` (`list`, `link`, `unlink`) and `folders` (`list`, `create`, `update`, `remove`). `uploadDirect` and `uploadMultipart` (resumable, `concurrency`, `onProgress`, `signal`) need `direct_upload.enabled` on the host and, in browsers, a bucket CORS policy exposing `ETag`; a 404 there is `module_disabled` with `module: 'attachments.direct_upload'`. `upload(file, { strategy: 'auto' })` picks multipart above `partSize × 2` (default part 8 MiB), direct only when `directUpload: true` is passed, else the form upload; `upload` without a strategy is the form upload. The multipart `upload_token` (in `onState` snapshots) is a credential. Protected files need the auth header, so fetch them as a blob for `<img>`, or use the signed `preview_url` when the host enables previews. A 404 is `module_disabled` only on calls with no lookup target (`upload` without `recordType`, `folders.list`, `folders.create`); on the others it stays `not_found` (missing record, link, attachment or folder), so a disabled module reads as `not_found` there and `capabilities()` (a later release) is the reliable detector. See [src/attachments/README.md](src/attachments/README.md) for routes, field names and error handling.
+
+### Audit
+
+```ts
+import { audit } from '@sopheak/sp-laravel-api/audit';
+
+const log = audit(api);
+const page = await log.list({ include: ['user'] });           // read-only sp_audit_logs
+const s = await log.stats({ startDate: '2026-01-01', event: 'updated' }); // { total, by_event, by_user, by_entity }
+const history = await log.fieldTimeline('invoices', 42, 'status', { limit: 20 });
+```
+
+`list`, `stats`, `fieldTimeline` and `fieldStats`. The tenant always comes from the client's tenant header: there is no `tenantId` option and no `tenant_id` is ever sent. The calls need the Gate `manage-audit-logs` (401 `unauthenticated`, 403 `forbidden`); the audit routes are off by default and a 404 on the three function routes is `module_disabled`. See [src/audit/README.md](src/audit/README.md).
+
+### Permissions
+
+```ts
+import { permissions } from '@sopheak/sp-laravel-api/permissions';
+
+const p = permissions(api);
+const role = await p.roles.create({ name: 'Auditor' });
+await p.assign(role.id, [1, 2]);  // attach (existing links are kept)
+await p.detach(role.id, [2]);     // detach the link only; the permission row stays
+```
+
+`roles` (`sp_roles` CRUD), `permissions` (`sp_permissions`: `list`, `get`, `update` only), `assign` and `detach`. A 404 on `assign` / `detach` is `not_found` (missing role), never `module_disabled`. See [src/permissions/README.md](src/permissions/README.md).
 
 ## Backend compatibility
 

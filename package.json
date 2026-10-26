@@ -19,6 +19,12 @@
       ],
       "attachments": [
         "./dist/attachments.d.ts"
+      ],
+      "audit": [
+        "./dist/audit.d.ts"
+      ],
+      "permissions": [
+        "./dist/permissions.d.ts"
       ]
     }
   },
@@ -51,6 +57,26 @@
       "require": {
         "types": "./dist/attachments.d.cts",
         "default": "./dist/attachments.cjs"
+      }
+    },
+    "./audit": {
+      "import": {
+        "types": "./dist/audit.d.ts",
+        "default": "./dist/audit.js"
+      },
+      "require": {
+        "types": "./dist/audit.d.cts",
+        "default": "./dist/audit.cjs"
+      }
+    },
+    "./permissions": {
+      "import": {
+        "types": "./dist/permissions.d.ts",
+        "default": "./dist/permissions.js"
+      },
+      "require": {
+        "types": "./dist/permissions.d.cts",
+        "default": "./dist/permissions.cjs"
       }
     }
   },
