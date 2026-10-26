@@ -262,7 +262,7 @@ await att.forRecord('products', 7).link([file.id]);
 const src = att.viewUrl(file.id, { w: 200, fit: 'crop' }); // a string, no request
 ```
 
-`upload`, `cloneTemp`, `viewUrl`, `downloadUrl`, `forRecord(table, id)` (`list`, `link`, `unlink`) and `folders` (`list`, `create`, `update`, `remove`). Direct and multipart upload arrive in a later release. Protected files need the auth header, so fetch them as a blob for `<img>`, or use the signed `preview_url` when the host enables previews. See [src/attachments/README.md](src/attachments/README.md) for routes, field names and error handling.
+`upload`, `cloneTemp`, `viewUrl`, `downloadUrl`, `forRecord(table, id)` (`list`, `link`, `unlink`) and `folders` (`list`, `create`, `update`, `remove`). Direct and multipart upload arrive in a later release. Protected files need the auth header, so fetch them as a blob for `<img>`, or use the signed `preview_url` when the host enables previews. A 404 is `module_disabled` only on calls with no lookup target (`upload` without `recordType`, `folders.list`, `folders.create`); on the others it stays `not_found` (missing record, link, attachment or folder), so a disabled module reads as `not_found` there and `capabilities()` (a later release) is the reliable detector. See [src/attachments/README.md](src/attachments/README.md) for routes, field names and error handling.
 
 ## Backend compatibility
 

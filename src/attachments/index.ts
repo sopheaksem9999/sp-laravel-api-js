@@ -151,7 +151,8 @@ function folderBody(b: AttachmentFolderInput): Record<string, unknown> {
 /**
  * Attachments for a client: upload, temp clones, URLs, record links and folders. Every call goes through
  * `api.request` (auth, tenant header, `SpApiError`) and errors carry `module: 'attachments'`.
- * All routes are feature routes: a 404 means the host has the module off (`module_disabled`).
+ * A 404 is `module_disabled` only on calls with no lookup target (`upload` without `recordType`, `folders.list`,
+ * `folders.create`); on every other call it stays `not_found` (missing record, link, attachment or folder).
  */
 export function attachments(api: Api): Attachments {
   const rpc = api.config.rpcPrefix ?? 'rpc';
@@ -164,8 +165,11 @@ export function attachments(api: Api): Attachments {
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     p: string,
     extra: { body?: unknown; query?: URLSearchParams | { where?: Where }; signal?: AbortSignal } = {},
+    feature = false,
   ): Promise<T> => {
-    const r = await api.request<T>({ method, path: p, ...extra, module: MODULE, disabledOn404: true });
+    // `feature`: the route has no lookup target, so a 404 can only mean the module is off (`module_disabled`).
+    // Otherwise a 404 is a missing record, link, attachment or folder and stays `not_found`.
+    const r = await api.request<T>({ method, path: p, ...extra, module: MODULE, disabledOn404: feature });
     return r.data;
   };
 
@@ -185,7 +189,7 @@ export function attachments(api: Api): Attachments {
         collection_name: o.collection,
       };
       for (const [k, v] of Object.entries(fields)) if (v !== undefined) fd.append(k, v);
-      return call<Attachment>('POST', path('upload'), { body: fd, signal: o.signal });
+      return call<Attachment>('POST', path('upload'), { body: fd, signal: o.signal }, o.recordType === undefined);
     },
 
     cloneTemp(id, o = {}) {
@@ -244,8 +248,8 @@ export function attachments(api: Api): Attachments {
 
     folders: {
       list: (where, o = {}) =>
-        call<AttachmentFolder[]>('GET', path('folders'), { query: where === undefined ? undefined : { where }, signal: o.signal }),
-      create: (b, o = {}) => call<AttachmentFolder>('POST', path('folders'), { body: folderBody(b), signal: o.signal }),
+        call<AttachmentFolder[]>('GET', path('folders'), { query: where === undefined ? undefined : { where }, signal: o.signal }, true),
+      create: (b, o = {}) => call<AttachmentFolder>('POST', path('folders'), { body: folderBody(b), signal: o.signal }, true),
       update: (id, b, o = {}) => call<AttachmentFolder>('PUT', path('folders', id), { body: folderBody(b), signal: o.signal }),
       async remove(id, o = {}) {
         await call<unknown>('DELETE', path('folders', id), { signal: o.signal });

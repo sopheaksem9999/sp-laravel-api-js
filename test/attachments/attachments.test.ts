@@ -101,7 +101,14 @@ describe('attachments.upload', () => {
     expect(calls[0]!.headers.get('X-Tenant')).toBe('5');
   });
 
-  it('404 maps to module_disabled with module attachments', async () => {
+  it('404 on upload with recordType stays not_found (missing target record)', async () => {
+    const { att } = setup(() => fail(404, 'Target record not found'));
+    const e = await rejection(att.upload(new Blob(['x']), { recordType: 'products', recordId: 1 }));
+    expect(e.code).toBe('not_found');
+    expect(e.module).toBe('attachments');
+  });
+
+  it('404 on upload without recordType maps to module_disabled with module attachments', async () => {
     const { att } = setup(() => fail(404));
     const e = await rejection(att.upload(new Blob(['x']), {}));
     expect(e.code).toBe('module_disabled');
@@ -133,12 +140,12 @@ describe('attachments.cloneTemp', () => {
     });
   });
 
-  it('works without options and maps 404 to module_disabled', async () => {
+  it('works without options and keeps a 404 as not_found (missing attachment)', async () => {
     const a = setup();
     await a.att.cloneTemp('abc');
     expect(a.calls[0]!.body).toEqual({ attachment_id: 'abc' });
     const b = setup(() => fail(404));
-    expect((await rejection(b.att.cloneTemp(1))).code).toBe('module_disabled');
+    expect((await rejection(b.att.cloneTemp(1))).code).toBe('not_found');
   });
 
   it('surfaces 410 as status 410', async () => {
@@ -268,11 +275,20 @@ describe('attachments.forRecord', () => {
     expect(calls[0]!.url.pathname).toBe('/api/sp_attachments/rpc/record/products/7/5');
   });
 
-  it('404 on record routes is module_disabled (feature route)', async () => {
-    const { att } = setup(() => fail(404));
-    const e = await rejection(att.forRecord('products', 7).list());
-    expect(e.code).toBe('module_disabled');
-    expect(e.module).toBe('attachments');
+  it('404 on record routes stays not_found (missing record or link)', async () => {
+    const { att } = setup(() => fail(404, 'Target record not found'));
+    const rec = att.forRecord('products', 7);
+    for (const p of [rec.list(), rec.link(1), rec.unlink(1)]) {
+      const e = await rejection(p);
+      expect(e.code).toBe('not_found');
+      expect(e.module).toBe('attachments');
+    }
+  });
+
+  it('link([]) makes no request and resolves []', async () => {
+    const { calls, att } = setup();
+    expect(await att.forRecord('products', 7).link([])).toEqual([]);
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -313,8 +329,15 @@ describe('attachments.folders', () => {
     expect(e.module).toBe('attachments');
   });
 
-  it('404 on folders is module_disabled', async () => {
+  it('404 on folders.list and folders.create is module_disabled (feature routes)', async () => {
     const { att } = setup(() => fail(404));
     expect((await rejection(att.folders.list())).code).toBe('module_disabled');
+    expect((await rejection(att.folders.create({ name: 'x' }))).code).toBe('module_disabled');
+  });
+
+  it('404 on folders.update and folders.remove stays not_found (unknown folder)', async () => {
+    const { att } = setup(() => fail(404));
+    expect((await rejection(att.folders.update(1, { name: 'x' }))).code).toBe('not_found');
+    expect((await rejection(att.folders.remove(1))).code).toBe('not_found');
   });
 });

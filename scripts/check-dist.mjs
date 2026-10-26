@@ -35,7 +35,24 @@ if (bad.length) {
 
 // The core import graph must hold no module code (bundle-size acceptance: importing only the main entry
 // pulls in no module). Follow every relative import/require from the two main entries.
-const MODULE_MARKERS = ['bulk/create', 'bulk/upsert', 'rpc/upload', 'clone-temp', 'attachment_ids'];
+// Each marker must be a literal that really appears in that module's own dist file (guarded below, so a
+// marker that the bundler never emits cannot pass vacuously).
+const MODULE_MARKERS_BY_MODULE = {
+  bulk: ['bulk/create', 'bulk/upsert'],
+  attachments: ['sp_attachments', 'clone-temp', 'attachment_ids'],
+};
+const MODULE_MARKERS = Object.values(MODULE_MARKERS_BY_MODULE).flat();
+const vacuous = [];
+for (const [mod, markers] of Object.entries(MODULE_MARKERS_BY_MODULE)) {
+  for (const ext of ['js', 'cjs']) {
+    const text = readFileSync(join(root, `${mod}.${ext}`), 'utf8');
+    for (const m of markers) if (!text.includes(m)) vacuous.push(`dist/${mod}.${ext} lacks marker "${m}"`);
+  }
+}
+if (vacuous.length) {
+  console.error(`check-dist: vacuous module markers (not emitted in their own module file):\n  ${vacuous.join('\n  ')}`);
+  process.exit(1);
+}
 const seen = new Set();
 const leaks = [];
 function follow(file) {

@@ -58,7 +58,7 @@ or use the signed, public `preview_url` when the host enables previews.
 
 ## Errors
 
-- All calls here are feature routes, so a 404 becomes `code: 'module_disabled'` (the host has `attachments` off). There is no lookup-by-id call in this module; a missing target record on `forRecord(...)` also answers 404 and is reported the same way, so check the message (`Target record not found`) in `error.message` to tell them apart.
+- 404 depends on the call. Calls with no lookup target are feature routes, so a 404 becomes `code: 'module_disabled'` (the host has `attachments` off): `upload` without `recordType`, `folders.list` and `folders.create`. Lookup-style calls keep `code: 'not_found'`, because the backend answers a plain `{ message }` 404 for a missing target record, attachment, link or folder: `cloneTemp`, `forRecord(...).list/link/unlink`, `folders.update/remove`, and `upload` with `recordType`. A module switched off therefore reads as `not_found` on those calls; do not hide the attachments UI on `not_found`. `capabilities()` (a later release) is the reliable way to detect a disabled module.
 - 410: a temp attachment has expired (`cloneTemp` of an expired file). Surfaces with `status: 410`.
 - 409: `folders.remove` on a folder that is not empty. Surfaces with `status: 409` (`code: 'unknown'`).
 - 422: validation failures (size, visibility, missing file) with `fieldErrors`.
