@@ -23,8 +23,11 @@ export type Condition = Scalar | Scalar[] | Partial<Record<Operator, Scalar | Sc
 /** Column filters keyed by column name; the reserved key `raw` is a literal `'col=op.value'` pair. */
 export type Where = { raw?: string } & { [column: string]: Condition | undefined };
 
-/** A selected column, or a relation embed with its own selection. */
-export type SelectItem = string | { embed: string; select: SelectItem[] };
+/**
+ * A selected column, or an object keyed by relation name whose value is the embedded columns
+ * (`{ customer: ['id', 'display_name'] }`). The `{ cols, where }` form carries an embed filter.
+ */
+export type SelectItem = string | { [relation: string]: SelectItem[] | { cols: SelectItem[]; where?: Where } };
 
 /** Aggregate request; the shape is completed by the advanced serializer. */
 export interface AggregateSpec {

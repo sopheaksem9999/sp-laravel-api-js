@@ -69,8 +69,14 @@ describe('serializeQuery', () => {
 
   it('serialises select', () => {
     expect(
-      q({ select: ['id', 'ref_number', { embed: 'customer', select: ['id', 'display_name'] }] }).get('select'),
+      q({ select: ['id', 'ref_number', { customer: ['id', 'display_name'] }] }).get('select'),
     ).toBe('id,ref_number,customer(id,display_name)');
+  });
+
+  it('serialises nested embeds', () => {
+    expect(q({ select: ['id', { customer: ['id', { address: ['city'] }] }] }).get('select')).toBe(
+      'id,customer(id,address(city))',
+    );
   });
 
   it('serialises sort and search', () => {
@@ -84,6 +90,15 @@ describe('serializeQuery', () => {
   it('serialises or groups', () => {
     expect(q({ or: [{ status: 'draft' }, { due_date: { lt: '2026-11-01' } }] }).get('or')).toBe(
       '(status.eq.draft,due_date.lt.2026-11-01)',
+    );
+  });
+
+  it('ANDs multiple conditions inside one or item', () => {
+    expect(q({ or: [{ status: 'draft' }, { a: 1, b: 2 }] }).get('or')).toBe(
+      '(status.eq.draft,and(a.eq.1,b.eq.2))',
+    );
+    expect(q({ or: [{ status: 'draft' }, { total: { gte: 1, lt: 5 } }] }).get('or')).toBe(
+      '(status.eq.draft,and(total.gte.1,total.lt.5))',
     );
   });
 

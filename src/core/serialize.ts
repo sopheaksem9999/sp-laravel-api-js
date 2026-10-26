@@ -41,7 +41,15 @@ function operands(cond: Condition): Array<[string, Scalar | Scalar[]]> {
 }
 
 function formatSelect(items: SelectItem[]): string {
-  return items.map((i) => (typeof i === 'string' ? i : `${i.embed}(${formatSelect(i.select)})`)).join(',');
+  return items
+    .flatMap((i) => {
+      if (typeof i === 'string') return [i];
+      return Object.entries(i).map(([relation, spec]) => {
+        if (!Array.isArray(spec)) throw new Error(`Embed filters on "${relation}" are not supported yet`);
+        return `${relation}(${formatSelect(spec)})`;
+      });
+    })
+    .join(',');
 }
 
 /** Dotted `col.op.value` conditions of a Where, used inside `or=(...)` / `and=(...)` groups. */
@@ -81,7 +89,10 @@ export function serializeQuery(q: Query, opts: SerializeOptions): URLSearchParam
   if (andGroup.length > 0) p.set('and', `(${andGroup.join(',')})`);
 
   if (q.or !== undefined) {
-    const parts = q.or.flatMap((w) => groupConditions(w, quoting));
+    const parts = q.or
+      .map((w) => groupConditions(w, quoting))
+      .filter((c) => c.length > 0)
+      .map((c) => (c.length === 1 ? (c[0] as string) : `and(${c.join(',')})`));
     if (parts.length > 0) p.set('or', `(${parts.join(',')})`);
   }
 
