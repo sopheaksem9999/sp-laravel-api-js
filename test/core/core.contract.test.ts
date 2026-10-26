@@ -35,13 +35,21 @@ describe.skipIf(mode !== 'live' && !hasFixtures)('core contract (sp-laravel-api-
   it('lists page by page to the end via cursor', async () => {
     const seen: number[] = [];
     let cursor: string | null = null;
+    let pages = 0;
+    let ended = false;
     for (let i = 0; i < 1000; i++) {
       const page: Awaited<ReturnType<typeof rows.list>> = await rows.list({ perPage: 2, cursor });
+      pages++;
       seen.push(...page.data.map((r) => r.id));
-      if (page.next === null) break;
+      if (page.next === null) {
+        ended = true;
+        break;
+      }
       cursor = page.next;
     }
-    expect(seen.length).toBeGreaterThan(0);
+    expect(ended).toBe(true); // the loop must end because next === null, not by hitting the cap
+    expect(pages).toBeGreaterThan(1); // seed has > 2 rows (see contract/seed/README.md)
+    expect(seen.length).toBeGreaterThan(2);
     expect(new Set(seen).size).toBe(seen.length);
   });
 
@@ -72,8 +80,12 @@ describe.skipIf(mode !== 'live' && !hasFixtures)('core contract (sp-laravel-api-
 
   // UNVERIFIED-CONTRACT
   it('honours two operators on one column via and=(…)', async () => {
-    const page = await rows.list({ where: { total: { gte: 100, lt: 500 } }, perPage: 50 });
+    const all = await rows.list({ perPage: 1000 });
+    const page = await rows.list({ where: { total: { gte: 100, lt: 500 } }, perPage: 1000 });
     expect(lastUrl().searchParams.get('and')).toBe('(total.gte.100,total.lt.500)');
+    expect(page.data.length).toBeGreaterThan(0);
+    // the seed holds at least one row outside [100, 500), so filtering must remove something
+    expect(page.data.length).toBeLessThan(all.data.length);
     for (const r of page.data) {
       expect(r.total).toBeGreaterThanOrEqual(100);
       expect(r.total).toBeLessThan(500);
