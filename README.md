@@ -224,7 +224,7 @@ const laravel = createApi({
 
 ## Modules
 
-The core is in 0.1. `bulk`, `attachments`, `audit`, `permissions`, `webhooks` and `realtime` are available as subpath imports; the other modules below are planned and are **not in this release**: their import paths do not exist yet, and importing them fails.
+The core is in 0.1. `bulk`, `attachments`, `audit`, `permissions`, `webhooks`, `realtime` and `docs` are available as subpath imports, and the package ships the `sp-laravel-api typegen` CLI.
 
 | Backend module | Import path | Status |
 |---|---|---|
@@ -234,7 +234,7 @@ The core is in 0.1. `bulk`, `attachments`, `audit`, `permissions`, `webhooks` an
 | `permissions` | `@sopheak/sp-laravel-api/permissions` | available (see below) |
 | `webhooks` | `@sopheak/sp-laravel-api/webhooks` | available (see below) |
 | Broadcasting | `@sopheak/sp-laravel-api/realtime` | available (see below) |
-| `api_docs` | `@sopheak/sp-laravel-api/docs` | coming in 0.2 |
+| `api_docs` | `@sopheak/sp-laravel-api/docs` + CLI `sp-laravel-api typegen` | available (see below) |
 
 Each is a function that takes a table from the core client, so bundlers drop whatever you do not import, and the main entry never includes module code.
 
@@ -263,7 +263,7 @@ const src = att.viewUrl(file.id, { w: 200, fit: 'crop' }); // a string, no reque
 const big = await att.uploadMultipart(video, { onProgress: ({ loaded, total }) => show(loaded, total) });
 ```
 
-`upload`, `uploadDirect`, `uploadMultipart`, `cloneTemp`, `viewUrl`, `downloadUrl`, `forRecord(table, id)` (`list`, `link`, `unlink`) and `folders` (`list`, `create`, `update`, `remove`). `uploadDirect` and `uploadMultipart` (resumable, `concurrency`, `onProgress`, `signal`) need `direct_upload.enabled` on the host and, in browsers, a bucket CORS policy exposing `ETag`; a 404 there is `module_disabled` with `module: 'attachments.direct_upload'`. `upload(file, { strategy: 'auto' })` picks multipart above `partSize × 2` (default part 8 MiB), direct only when `directUpload: true` is passed, else the form upload; `upload` without a strategy is the form upload. The multipart `upload_token` (in `onState` snapshots) is a credential. Protected files need the auth header, so fetch them as a blob for `<img>`, or use the signed `preview_url` when the host enables previews. A 404 is `module_disabled` only on calls with no lookup target (`upload` without `recordType`, `folders.list`, `folders.create`); on the others it stays `not_found` (missing record, link, attachment or folder), so a disabled module reads as `not_found` there and `capabilities()` (a later release) is the reliable detector. See [src/attachments/README.md](src/attachments/README.md) for routes, field names and error handling.
+`upload`, `uploadDirect`, `uploadMultipart`, `cloneTemp`, `viewUrl`, `downloadUrl`, `forRecord(table, id)` (`list`, `link`, `unlink`) and `folders` (`list`, `create`, `update`, `remove`). `uploadDirect` and `uploadMultipart` (resumable, `concurrency`, `onProgress`, `signal`) need `direct_upload.enabled` on the host and, in browsers, a bucket CORS policy exposing `ETag`; a 404 there is `module_disabled` with `module: 'attachments.direct_upload'`. `upload(file, { strategy: 'auto' })` picks multipart above `partSize × 2` (default part 8 MiB), direct only when `directUpload: true` is passed, else the form upload; `upload` without a strategy is the form upload. The multipart `upload_token` (in `onState` snapshots) is a credential. Protected files need the auth header, so fetch them as a blob for `<img>`, or use the signed `preview_url` when the host enables previews. A 404 is `module_disabled` only on calls with no lookup target (`upload` without `recordType`, `folders.list`, `folders.create`); on the others it stays `not_found` (missing record, link, attachment or folder), so a disabled module reads as `not_found` there and `capabilities()` (from `/docs`) is the reliable detector. See [src/attachments/README.md](src/attachments/README.md) for routes, field names and error handling.
 
 ### Audit
 
@@ -385,6 +385,40 @@ export function useRealtime(echo: Echo, tenantId: Ref<number | null>, tables: st
 - With `bulk(table).*({ async: true })` the only way to see completion is the realtime events (or re-reading).
 
 See [src/realtime/README.md](src/realtime/README.md).
+
+### Docs and capabilities
+
+```ts
+import { capabilities, docs } from '@sopheak/sp-laravel-api/docs';
+
+const doc = await docs(api).openapi(); // OpenAPI 3.0.3 document
+const text = await docs(api).llms();   // markdown
+
+const caps = await capabilities(api);  // read once, cached per client; { refresh: true } re-reads
+if (caps === 'unknown') {
+  // docs private (404) or host unreachable: rely on module_disabled / not_found from the calls
+} else if (!caps.directUpload) {
+  hideLargeUploadButton();
+}
+```
+
+`capabilities` reports `bulk`, `attachments`, `directUpload`, `audit`, `permissions`, `webhooks` and `docs` as booleans, from the paths of the host's OpenAPI document (modules that are off are not documented), and `realtime` as `true` or `'unknown'`. It resolves `'unknown'` instead of throwing when the docs are private or the host is unreachable; 401, 403 and 5xx are thrown. It detects routes, not access (a Gate can still refuse). See [src/docs/README.md](src/docs/README.md).
+
+### Type generation
+
+```sh
+npx sp-laravel-api typegen --url https://host/api/v2/docs/openapi.json --out src/types/sp-api.ts
+npx sp-laravel-api typegen --file openapi.json --out src/types/sp-api.ts  # offline, from php artisan sp-laravel-api:export-openapi
+```
+
+```ts
+import type { Tables } from './types/sp-api';
+
+const api = createApi<Tables>({ baseUrl: '/api/v2' });
+const invoice = await api.table('invoices').get(7); // typed as InvoicesRead, no generic
+```
+
+The CLI (Node 20+) emits an interface per `{Name}Read` / `{Name}Write` schema and `interface Tables`; the output is deterministic. `--header 'Name: value'` (repeatable), `SP_API_TOKEN` (sent as a bearer token) and `--tenant <id>` add request headers for `--url`. Exit codes: 0 ok, 1 usage, 2 failure; errors never print tokens or headers. Private docs answer 404 to any token, so use `--file`. The backend marks only non-nullable columns as `required` and emits no `nullable` flag, so optional and nullable fields are approximate, and computed attributes are not in the schema (add them to your type and list them in `select`). See [src/docs/README.md](src/docs/README.md).
 
 ## Backend compatibility
 

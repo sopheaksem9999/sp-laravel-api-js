@@ -12,5 +12,7 @@
     "noEmit": true,
     "isolatedModules": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // src/cli is Node-only; it is type-checked by tsconfig.test.json (Node types).
+  "exclude": ["src/cli"]
 }

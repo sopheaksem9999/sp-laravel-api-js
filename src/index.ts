@@ -4,7 +4,7 @@ import pkg from '../package.json';
 export const VERSION: string = pkg.version;
 
 export { createApi } from './core/create-api';
-export type { Api } from './core/create-api';
+export type { Api, NoTables, TableTypes, TablesMap } from './core/create-api';
 export type { FnOptions } from './core/fn';
 export type { Keys } from './core/keys';
 

@@ -16,19 +16,23 @@ export interface CallOptions {
 
 type Id = string | number;
 
-export interface Table<T> {
+/**
+ * One table. `T` is the row type returned by reads; `W` is the write type whose `Partial` the write methods
+ * take (defaults to `T`; generated `Tables` interfaces supply their `{Name}Write` schema here).
+ */
+export interface Table<T, W = T> {
   readonly name: string;
   /** The client that created this table (used by sibling modules such as bulk). */
   readonly api: Api;
   list(q?: Query, o?: CallOptions): Promise<Page<T>>;
   get(id: Id, o?: { select?: SelectItem[] } & CallOptions): Promise<T>;
-  create(body: Partial<T>, o?: CallOptions): Promise<T>;
-  update(id: Id, body: Partial<T>, o?: CallOptions): Promise<T>;
-  patch(id: Id, body: Partial<T>, o?: CallOptions): Promise<T>;
+  create(body: Partial<W>, o?: CallOptions): Promise<T>;
+  update(id: Id, body: Partial<W>, o?: CallOptions): Promise<T>;
+  patch(id: Id, body: Partial<W>, o?: CallOptions): Promise<T>;
   remove(id: Id, o?: { force?: boolean } & CallOptions): Promise<{ deleted: boolean }>;
   restore(id: Id, o?: CallOptions): Promise<T>;
   upsert(
-    body: Partial<T>,
+    body: Partial<W>,
     o: { matchOn: string[]; refetch?: boolean; select?: SelectItem[] } & CallOptions,
   ): Promise<{ id: unknown; payload: unknown } | T>;
   iterate(q?: Query, o?: CallOptions): AsyncGenerator<T>;
@@ -39,7 +43,7 @@ export interface Table<T> {
 }
 
 /** A table before `createApi` attaches `api`. */
-export type TableCore<T> = Omit<Table<T>, 'api'>;
+export type TableCore<T, W = T> = Omit<Table<T, W>, 'api'>;
 
 /** Encodes one path segment (table name or id). */
 const seg = (s: string | number): string => encodeURIComponent(String(s));
@@ -53,10 +57,10 @@ function callOpts(o: CallOptions | undefined): CallOptions {
 }
 
 /** Builds the CRUD surface for one table on top of a request function. */
-export function makeTable<T>(
+export function makeTable<T, W = T>(
   name: string,
   ctx: { request: ReturnType<typeof createRequester>; serialize: (q: Query) => URLSearchParams },
-): TableCore<T> {
+): TableCore<T, W> {
   const { request, serialize } = ctx;
   const base = seg(name);
 
@@ -81,7 +85,7 @@ export function makeTable<T>(
 
   const write =
     (method: 'PUT' | 'PATCH') =>
-    async (id: Id, body: Partial<T>, o?: CallOptions): Promise<T> =>
+    async (id: Id, body: Partial<W>, o?: CallOptions): Promise<T> =>
       (await request<T>({ method, path: `${base}/${seg(id)}`, body, ...callOpts(o) })).data;
 
   return {

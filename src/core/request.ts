@@ -44,6 +44,12 @@ export interface RequestOptions {
   explain?: boolean;
   module?: string;
   disabledOn404?: boolean;
+  /**
+   * `'json'` (default): parse the body and unwrap the `{ success, data, meta }` envelope (a body that is not
+   * JSON comes back as text). `'text'`: return the raw body as a string (`''` when empty), never parsed;
+   * errors are handled as usual.
+   */
+  responseType?: 'json' | 'text';
 }
 
 /** Unwrapped result of a successful call. */
@@ -166,6 +172,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
         throw failure;
       }
 
+      if (o.responseType === 'text') return { data: text as T, meta: {}, response: res };
       if (text.trim() === '') return { data: null as T, meta: {}, response: res };
       let parsed: unknown;
       try {

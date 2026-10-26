@@ -54,6 +54,7 @@ const MODULE_MARKERS_BY_MODULE = {
   permissions: ['sp_roles', 'sp_permissions', '_delete'],
   webhooks: ['sp_webhook_endpoints', 'sp_webhook_subscriptions', 'sp_webhook_deliveries', 'x-webhook-event'],
   realtime: ['tenant.global', 'realtime_handler_error'],
+  docs: ['docs/openapi.json', 'docs/llms.txt', 'x-sp-realtime'],
 };
 const MODULE_MARKERS = Object.values(MODULE_MARKERS_BY_MODULE).flat();
 const vacuous = [];
@@ -86,6 +87,29 @@ try {
 }
 if (leaks.length) {
   console.error(`check-dist: module code reachable from the main entry:\n  ${leaks.join('\n  ')}`);
+  process.exit(1);
+}
+const cliHit = [...seen].filter((f) => relative(root, f).split(sep)[0] === 'cli');
+if (cliHit.length) {
+  console.error(`check-dist: the main entry reaches the Node-only CLI:\n  ${cliHit.map((f) => relative(root, f)).join('\n  ')}`);
+  process.exit(1);
+}
+
+// The bin: dist/cli/index.js exists, is a Node script, and is self-contained (imports no package entry or chunk,
+// so the CLI never drags module code along and the entries never depend on it).
+let cli;
+try {
+  cli = readFileSync(join(root, 'cli', 'index.js'), 'utf8');
+} catch (e) {
+  console.error(`check-dist: dist/cli/index.js is missing (${e.message}).`);
+  process.exit(1);
+}
+if (!cli.startsWith('#!/usr/bin/env node\n')) {
+  console.error('check-dist: dist/cli/index.js does not start with the "#!/usr/bin/env node" shebang');
+  process.exit(1);
+}
+if (/(?:from|require\(|import\()\s*["']\./.test(cli)) {
+  console.error('check-dist: dist/cli/index.js imports relative files; the CLI must be bundled self-contained');
   process.exit(1);
 }
 
@@ -131,6 +155,13 @@ const hookThrown = (() => {
 })();
 if (!(hookThrown instanceof core.SpApiError)) {
   console.error('check-dist: webhooks.cjs throws an SpApiError that is not instanceof the main entry SpApiError (splitting off?)');
+  process.exit(1);
+}
+const docsMod = require(join(root, 'docs.cjs'));
+const docsApi = core.createApi({ baseUrl: 'https://x.test', fetch: async () => new Response('{}', { status: 403 }) });
+const docsThrown = await docsMod.capabilities(docsApi).catch((e) => e);
+if (!(docsThrown instanceof core.SpApiError)) {
+  console.error('check-dist: docs.cjs throws an SpApiError that is not instanceof the main entry SpApiError (splitting off?)');
   process.exit(1);
 }
 // realtime throws no SpApiError (no HTTP, never throws), so it has no CJS instanceof check.

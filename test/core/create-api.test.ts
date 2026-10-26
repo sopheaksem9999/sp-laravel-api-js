@@ -129,3 +129,41 @@ describe('aggregate', () => {
     expectTypeOf(r.rows).toEqualTypeOf<{ count: number; sum_total: number; status: unknown }[]>();
   });
 });
+
+// Typing glue for generated `Tables` interfaces (see `sp-laravel-api typegen`).
+interface InvoicesRead {
+  id?: number;
+  number: string;
+}
+interface InvoicesWrite {
+  number: string;
+  notes?: string;
+}
+interface GeneratedTables {
+  invoices: { read: InvoicesRead; write: InvoicesWrite };
+}
+
+describe('createApi<Tables>', () => {
+  it('types api.table(name) from a generated Tables interface without generics', () => {
+    const { api: plain } = mk();
+    const api = createApi<GeneratedTables>(plain.config);
+    const t = api.table('invoices');
+    expectTypeOf(t.get).returns.resolves.toEqualTypeOf<InvoicesRead>();
+    expectTypeOf(t.create).parameter(0).toEqualTypeOf<Partial<InvoicesWrite>>();
+    expectTypeOf(t.patch).parameter(1).toEqualTypeOf<Partial<InvoicesWrite>>();
+    expectTypeOf(t.update).parameter(1).toEqualTypeOf<Partial<InvoicesWrite>>();
+    expectTypeOf(t.upsert).parameter(0).toEqualTypeOf<Partial<InvoicesWrite>>();
+    expect(t.name).toBe('invoices');
+  });
+
+  it('keeps the untyped and explicit-generic forms working', () => {
+    const { api } = mk();
+    expectTypeOf(api.table('anything').get).returns.resolves.toEqualTypeOf<unknown>();
+    expectTypeOf(api.table<{ a: number }>('x').get).returns.resolves.toEqualTypeOf<{ a: number }>();
+    expectTypeOf(api.table<{ a: number }>('x').create).parameter(0).toEqualTypeOf<Partial<{ a: number }>>();
+    const typed = createApi<GeneratedTables>(api.config);
+    // a table not in Tables, and an explicit generic, fall back to the plain overload
+    expectTypeOf(typed.table('other').get).returns.resolves.toEqualTypeOf<unknown>();
+    expectTypeOf(typed.table<{ b: string }>('other').get).returns.resolves.toEqualTypeOf<{ b: string }>();
+  });
+});

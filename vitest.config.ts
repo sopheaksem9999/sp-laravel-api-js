@@ -10,7 +10,8 @@ export default defineConfig({
           name: 'edge',
           environment: 'edge-runtime',
           include: ['test/**/*.test.ts'],
-          exclude: ['test/**/*.contract.test.ts', 'test/node/**', 'test/support/**'],
+          // test/cli: the typegen CLI is Node-only by design.
+          exclude: ['test/**/*.contract.test.ts', 'test/node/**', 'test/support/**', 'test/cli/**'],
         },
       },
     ],

@@ -288,3 +288,31 @@ describe('createRequester', () => {
     expect(fake).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('createRequester responseType', () => {
+  it("responseType 'text' returns the raw body, even when it parses as JSON or an envelope", async () => {
+    const body = JSON.stringify({ success: true, data: 'x' });
+    const { request } = setup([new Response(body, { status: 200, headers: { 'Content-Type': 'text/plain' } })]);
+    const r = await request<string>({ method: 'GET', path: 'docs/llms.txt', responseType: 'text' });
+    expect(r.data).toBe(body);
+    expect(r.meta).toEqual({});
+  });
+
+  it("responseType 'text' returns '' (not null) for an empty or 204 body", async () => {
+    const { request } = setup([new Response('', { status: 200 }), new Response(null, { status: 204 })]);
+    expect((await request<string>({ method: 'GET', path: 'a', responseType: 'text' })).data).toBe('');
+    expect((await request<string>({ method: 'GET', path: 'b', responseType: 'text' })).data).toBe('');
+  });
+
+  it("responseType 'text' still throws SpApiError on a non-2xx response", async () => {
+    const { request } = setup([json({ success: false, message: 'Not Found' }, 404)]);
+    const e = await request({ method: 'GET', path: 'x', responseType: 'text', module: 'docs', disabledOn404: true }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(SpApiError);
+    expect(e).toMatchObject({ code: 'module_disabled', module: 'docs' });
+  });
+
+  it('the default (json) is unchanged: a non-JSON 200 body comes back as text', async () => {
+    const { request } = setup([new Response('# hello', { status: 200 })]);
+    expect((await request<string>({ method: 'GET', path: 'x' })).data).toBe('# hello');
+  });
+});

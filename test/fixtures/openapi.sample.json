@@ -1,0 +1,405 @@
+{
+  "openapi": "3.0.3",
+  "x-fixture": "Hand-built from sp-laravel-api OpenApiService::generateInternal() (0.5.06) on MySQL column types, api_prefix 'api/v2', rpc_prefix 't', id_type integer. Path operations are trimmed to what typegen and capabilities() read. invoice_items has no PATCH operation, as hosts before 0.5.06 emitted.",
+  "info": {
+    "title": "Acme - Internal Documentation",
+    "version": "2.0.0",
+    "description": "# API Documentation"
+  },
+  "servers": [{ "url": "https://acme.test", "description": "Primary API server (Internal)" }],
+  "tags": [
+    { "name": "Invoices", "description": "Operations for `Invoices` records" },
+    { "name": "Invoice Items", "description": "Operations for `Invoice Items` records" },
+    { "name": "Sp Audit Logs", "description": "Operations for `Sp Audit Logs` records" },
+    { "name": "RPC", "description": "Global RPC functions" }
+  ],
+  "paths": {
+    "/api/v2/invoices": {
+      "get": {
+        "tags": ["Invoices"],
+        "summary": "List Invoices",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "error_code": { "type": "integer", "example": 0 },
+                    "data": { "type": "array", "items": { "$ref": "#/components/schemas/InvoicesRead" } },
+                    "meta": { "type": "object", "properties": { "request_id": { "type": "string" } } }
+                  },
+                  "required": ["success", "error_code", "data", "meta"]
+                }
+              }
+            }
+          }
+        },
+        "security": [{ "bearerAuth": [] }]
+      },
+      "post": {
+        "tags": ["Invoices"],
+        "summary": "Create Invoices",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/InvoicesWrite" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean", "example": true },
+                    "data": { "$ref": "#/components/schemas/Invoices" }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [{ "bearerAuth": [] }]
+      }
+    },
+    "/api/v2/invoices/upsert": {
+      "post": {
+        "tags": ["Invoices"],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/InvoicesWrite" } } } },
+        "responses": { "200": { "description": "Upserted" } }
+      }
+    },
+    "/api/v2/invoices/bulk/upsert": {
+      "post": {
+        "tags": ["Invoices"],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/InvoicesWrite" } } } }
+        },
+        "responses": { "200": { "description": "Bulk Upserted" } }
+      }
+    },
+    "/api/v2/invoices/bulk/create": {
+      "post": {
+        "tags": ["Invoices"],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "type": "array", "items": { "$ref": "#/components/schemas/InvoicesWrite" } } } }
+        },
+        "responses": { "200": { "description": "Bulk Created" } }
+      }
+    },
+    "/api/v2/invoices/{id}": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": {
+        "tags": ["Invoices"],
+        "summary": "Get Invoices by ID",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "success": { "type": "boolean" }, "data": { "$ref": "#/components/schemas/InvoicesRead" } }
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["Invoices"],
+        "summary": "Update Invoices",
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/InvoicesWrite" } } } },
+        "responses": { "200": { "description": "Updated" } }
+      },
+      "patch": {
+        "tags": ["Invoices"],
+        "summary": "Update Invoices (partial)",
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/InvoicesWrite" } } } },
+        "responses": { "200": { "description": "Updated" } }
+      },
+      "delete": { "tags": ["Invoices"], "summary": "Delete Invoices", "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/v2/invoices/{id}/restore": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "post": {
+        "tags": ["Invoices"],
+        "summary": "Restore Invoices",
+        "responses": {
+          "200": {
+            "description": "Restored",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Invoices" } } } } }
+          }
+        }
+      }
+    },
+    "/api/v2/invoices/t/approve": {
+      "post": { "tags": ["Invoices"], "summary": "RPC - Approve", "responses": { "200": { "description": "Success" } } }
+    },
+    "/api/v2/invoice_items": {
+      "get": {
+        "tags": ["Invoice Items"],
+        "summary": "List Invoice Items",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Invoice_itemsRead" } } }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["Invoice Items"],
+        "summary": "Create Invoice Items",
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Invoice_itemsWrite" } } } },
+        "responses": { "201": { "description": "Created" } }
+      }
+    },
+    "/api/v2/invoice_items/{id}": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": {
+        "tags": ["Invoice Items"],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Invoice_itemsRead" } } }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["Invoice Items"],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Invoice_itemsWrite" } } } },
+        "responses": { "200": { "description": "Updated" } }
+      },
+      "delete": { "tags": ["Invoice Items"], "responses": { "200": { "description": "Deleted" } } }
+    },
+    "/api/v2/sp_audit_logs": {
+      "get": {
+        "tags": ["Sp Audit Logs"],
+        "summary": "List Sp Audit Logs",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "data": { "type": "array", "items": { "$ref": "#/components/schemas/Sp_audit_logsRead" } } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/sp_audit_logs/{id}": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+      "get": {
+        "tags": ["Sp Audit Logs"],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": { "type": "object", "properties": { "data": { "$ref": "#/components/schemas/Sp_audit_logsRead" } } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/sp_audit_logs/t/stats": {
+      "get": { "tags": ["Sp Audit Logs"], "summary": "RPC - Stats", "responses": { "200": { "description": "Success" } } }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Invoices": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "number": { "type": "string" },
+          "status": { "type": "string", "enum": ["draft", "open", "paid"] },
+          "customer_id": { "type": "integer", "format": "int64" },
+          "notes": { "type": "string" },
+          "total": { "type": "number", "format": "decimal" },
+          "issued_on": { "type": "string", "format": "date" },
+          "meta": { "type": "object" },
+          "is_paid": { "type": "boolean" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        },
+        "required": ["number", "status", "total", "is_paid"],
+        "description": "Schema for table `invoices` (excludes soft delete field)"
+      },
+      "InvoicesRead": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "number": { "type": "string" },
+          "status": { "type": "string", "enum": ["draft", "open", "paid"] },
+          "customer_id": { "type": "integer", "format": "int64" },
+          "notes": { "type": "string" },
+          "total": { "type": "number", "format": "decimal" },
+          "issued_on": { "type": "string", "format": "date" },
+          "meta": { "type": "object" },
+          "is_paid": { "type": "boolean" }
+        },
+        "required": ["number", "status", "total", "is_paid"],
+        "description": "Read schema for table `invoices` (excludes system timestamps, soft delete)"
+      },
+      "InvoicesWrite": {
+        "type": "object",
+        "properties": {
+          "number": { "type": "string" },
+          "status": { "type": "string", "enum": ["draft", "open", "paid"] },
+          "customer_id": { "type": "integer", "format": "int64" },
+          "notes": { "type": "string" },
+          "total": {
+            "type": "number",
+            "format": "decimal",
+            "readOnly": true,
+            "description": "Write-disabled (columnWriteDisabled): sending this field is ignored (silent no-op)."
+          },
+          "issued_on": { "type": "string", "format": "date" },
+          "meta": { "type": "object" },
+          "is_paid": { "type": "boolean" }
+        },
+        "required": ["number", "status", "total", "is_paid"],
+        "description": "Write schema for table `invoices` (excludes system-managed fields; marks `columnWriteDisabled` fields as read-only). `id` is auto-increment and must not be sent."
+      },
+      "Invoice_items": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "invoice_id": { "type": "integer", "format": "int64" },
+          "description": { "type": "string" },
+          "qty": { "type": "integer", "format": "int32" },
+          "unit_price": { "type": "number", "format": "decimal" },
+          "discount": { "type": "number", "format": "double" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        },
+        "required": ["invoice_id", "qty", "unit_price"],
+        "description": "Schema for table `invoice_items` (excludes soft delete field)"
+      },
+      "Invoice_itemsRead": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "invoice_id": { "type": "integer", "format": "int64" },
+          "description": { "type": "string" },
+          "qty": { "type": "integer", "format": "int32" },
+          "unit_price": { "type": "number", "format": "decimal" },
+          "discount": { "type": "number", "format": "double" }
+        },
+        "required": ["invoice_id", "qty", "unit_price"],
+        "description": "Read schema for table `invoice_items` (excludes system timestamps, soft delete)"
+      },
+      "Invoice_itemsWrite": {
+        "type": "object",
+        "properties": {
+          "invoice_id": { "type": "integer", "format": "int64" },
+          "description": { "type": "string" },
+          "qty": { "type": "integer", "format": "int32" },
+          "unit_price": { "type": "number", "format": "decimal" },
+          "discount": { "type": "number", "format": "double" }
+        },
+        "required": ["invoice_id", "qty", "unit_price"],
+        "description": "Write schema for table `invoice_items` (excludes system-managed fields). `id` is auto-increment and must not be sent."
+      },
+      "Sp_audit_logs": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "entity_type": { "type": "string" },
+          "entity_id": { "type": "string" },
+          "user_id": { "type": "string" },
+          "event": { "type": "string" },
+          "old_data": { "type": "object" },
+          "new_data": { "type": "object" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        },
+        "required": ["entity_type", "event"],
+        "description": "Schema for table `sp_audit_logs` (excludes soft delete field)"
+      },
+      "Sp_audit_logsRead": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "entity_type": { "type": "string" },
+          "entity_id": { "type": "string" },
+          "user_id": { "type": "string" },
+          "event": { "type": "string" },
+          "old_data": { "type": "object" },
+          "new_data": { "type": "object" }
+        },
+        "required": ["entity_type", "event"],
+        "description": "Read schema for table `sp_audit_logs` (excludes system timestamps, soft delete)"
+      },
+      "Sp_audit_logsWrite": {
+        "type": "object",
+        "properties": {
+          "entity_type": { "type": "string" },
+          "entity_id": { "type": "string" },
+          "user_id": { "type": "string" },
+          "event": { "type": "string" },
+          "old_data": { "type": "object" },
+          "new_data": { "type": "object" }
+        },
+        "required": ["entity_type", "event"],
+        "description": "Write schema for table `sp_audit_logs` (excludes system-managed fields). `id` is auto-increment and must not be sent."
+      },
+      "RecordMutated": {
+        "type": "object",
+        "required": ["table", "action", "record", "tenant_id", "timestamp"],
+        "properties": {
+          "table": { "type": "string", "enum": ["invoices", "invoice_items"] },
+          "action": { "type": "string", "description": "The emitted mutation action. Clients must not assume a closed enum." },
+          "record": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "The affected record. Fields depend on the table and mutation response shape."
+          },
+          "tenant_id": { "description": "Tenant identifier, or null when the event uses tenant.global." },
+          "timestamp": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Use `Authorization: Bearer <token>` - Internal team access only"
+      }
+    }
+  },
+  "security": [{ "bearerAuth": [] }],
+  "x-sp-realtime": {
+    "version": "1.0",
+    "transport": "laravel-broadcasting",
+    "channels": [
+      {
+        "name": "record-mutations",
+        "pattern": "tenant.{tenantId}",
+        "private": true,
+        "events": [{ "pattern": "{table}.{action}", "payload": { "$ref": "#/components/schemas/RecordMutated" } }]
+      }
+    ]
+  }
+}

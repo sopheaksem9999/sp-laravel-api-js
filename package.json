@@ -12,6 +12,9 @@
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "bin": {
+    "sp-laravel-api": "./dist/cli/index.js"
+  },
   "typesVersions": {
     "*": {
       "bulk": [
@@ -31,6 +34,9 @@
       ],
       "realtime": [
         "./dist/realtime.d.ts"
+      ],
+      "docs": [
+        "./dist/docs.d.ts"
       ]
     }
   },
@@ -103,6 +109,16 @@
       "require": {
         "types": "./dist/realtime.d.cts",
         "default": "./dist/realtime.cjs"
+      }
+    },
+    "./docs": {
+      "import": {
+        "types": "./dist/docs.d.ts",
+        "default": "./dist/docs.js"
+      },
+      "require": {
+        "types": "./dist/docs.d.cts",
+        "default": "./dist/docs.cjs"
       }
     }
   },
