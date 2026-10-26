@@ -5,6 +5,7 @@ Two halves in one subpath: **admin** for the three webhook tables, and **receive
 ## Receiver
 
 ```ts
+// typecheck
 import { verifyWebhook, parseWebhook } from '@sopheak/sp-laravel-api/webhooks';
 
 // Express: receive Laravel webhooks (raw body)
@@ -17,8 +18,8 @@ app.post('/hooks/laravel', express.raw({ type: 'application/json' }), async (req
 ```
 
 - `verifyWebhook(rawBody, signatureHeader, secret): Promise<boolean>`: `rawBody` is a `string` or `Uint8Array` (a Node `Buffer` is one). Uses `crypto.subtle.verify('HMAC', ...)`, which compares in constant time, so the result is async. It returns `false` and never throws for a missing, empty, non-hex, odd-length, wrong-length or whitespace-padded header, an empty secret, or a body that is not a string or `Uint8Array`. Hex digits may be upper or lower case.
-- `parseWebhook({ headers, rawBody })`: `headers` is a Fetch `Headers` or a plain Node object (`req.headers`: lowercase keys, `string | string[] | undefined`; names are matched case-insensitively, arrays use the first value). Returns `{ table, action, record }`. It does **not** verify: call `verifyWebhook` first with the same raw body.
-- Bad input (missing or malformed `X-Webhook-Event`, malformed JSON, a body that is not a string or `Uint8Array`) throws `SpApiError` with `code: 'unknown'`, `status: 400`, `module: 'webhooks'` and a fixed message. The body text is never put into the error.
+- `parseWebhook({ headers, rawBody })`: `headers` is a Fetch `Headers` or a plain Node object (`req.headers`: lowercase keys, `string | string[] | undefined`; names are matched case-insensitively; a one-entry array is accepted). Returns `{ table, action, record }`. It does **not** verify: call `verifyWebhook` first with the same raw body.
+- Bad input (`headers` that are `null`/`undefined`, a missing, malformed or repeated `X-Webhook-Event` — several values, or values joined with `, ` as Fetch and Node do for a repeated header — malformed JSON, a body that is not a string or `Uint8Array`) throws `SpApiError` with `code: 'unknown'`, `status: 400`, `module: 'webhooks'` and a fixed message. The body text is never put into the error.
 
 ### Use the raw body
 
@@ -36,6 +37,7 @@ Fastify, Hono, Deno and Bun give you the same thing through their raw-text acces
 ## Admin
 
 ```ts
+// typecheck
 import { webhooks } from '@sopheak/sp-laravel-api/webhooks';
 
 const w = webhooks(api);
@@ -44,7 +46,7 @@ const { endpoint, secret } = await w.endpoints.create({ name: 'Billing sync', ur
 // `secret` is shown ONCE, here. Store it yourself (e.g. SP_WEBHOOK_SECRET): no read returns it again.
 await w.subscriptions.create({ endpoint_id: endpoint.id, table_name: 'invoices', event: 'created' }); // '*' matches all
 const rotated = await w.endpoints.rotateSecret(endpoint.id); // new secret, shown once
-const recent = await w.deliveries.list({ sort: ['-created_at'] }); // read-only
+const recent = await w.deliveries.list({ sort: { by: 'created_at', order: 'desc' } }); // read-only
 ```
 
 - `endpoints`: `list`, `get`, `update`, `patch`, `remove`, `restore` pass through to `sp_webhook_endpoints` (`restore` resolves `{ restored: number }`, not the row; `get(id)` afterwards for it); `create` and `rotateSecret` generate secrets (below). A `secret` that an older host still returns is stripped from every result.
@@ -58,6 +60,7 @@ The backend never generates the secret and never returns it: `secret` is a hidde
 
 - `endpoints.create({ url, name, secret? })` sends the `secret` you pass, or a generated one (32 bytes from `crypto.getRandomValues`, 64 lowercase hex chars, also when `secret` is `''`), and returns `{ endpoint, secret }` once.
 - `endpoints.rotateSecret(id)` is `update(id, { secret: <new> })` and returns `{ endpoint, secret }` once. The old secret stops working at once, so update the receiver before or together with the rotation.
+- **Timeouts lose the secret.** `create` and `rotateSecret` generate the secret on the client and only return it if the request succeeds. If the request times out (or the network drops) *after* the host applied it, the host holds a secret you never saw: deliveries to that endpoint then fail verification. Rotate again (`rotateSecret(id)`) to get back to a known secret; after a failed `create`, check `endpoints.list()` for a half-created endpoint and rotate or remove it.
 - The backend also requires `name` (non-null); omit it and the host answers a 422 `validation` error.
 - Keep secrets out of logs and source control.
 

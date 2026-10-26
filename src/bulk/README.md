@@ -3,6 +3,7 @@
 Bulk create, update, delete, upsert and mixed writes for one table, with automatic chunking.
 
 ```ts
+// typecheck
 import { createApi } from '@sopheak/sp-laravel-api';
 import { bulk } from '@sopheak/sp-laravel-api/bulk';
 
@@ -19,7 +20,7 @@ await invoices.upsert(rows, { matchOn: ['number'] }); // -> { count }
 await invoices.mixed({ create: newRows, update: changed, delete: [9] });
 ```
 
-Every call goes through `table.api.request`, so auth, the tenant header, request ids and `SpApiError` all behave as in the core. Errors carry `module: 'bulk'`; a 404 on a bulk route (the host has `bulk_operations` off) becomes `code: 'module_disabled'`.
+Every call goes through `table.api.request`, so auth, the tenant header, request ids and `SpApiError` all behave as in the core. Errors carry `module: 'bulk'`; a 404 on a bulk route (the host has `bulk_operations` off) becomes `code: 'module_disabled'`. With the module on, the only 404 the bulk routes produce is an unknown table, so a **mistyped table name, or a table the host hides, also reads as `module_disabled`**: the client cannot tell the two apart (a documented cost of mapping every bulk 404 to `module_disabled`). Use `capabilities(api)` from `@sopheak/sp-laravel-api/docs` to confirm the module is on, then suspect the table name.
 
 ## Backend contract (verified against `sp-laravel-api` source, `HasBulkOperations.php`, `RecordService::bulkRecord`, `routes/api.php`)
 
@@ -37,7 +38,7 @@ Routes only exist when the host config `record.bulk_operations` is true.
 
 ### The `mixed` body shape
 
-`POST {table}/bulk` takes a bare array of rows. The backend decides the operation per row: an explicit `operation` field (`'create' | 'update' | 'delete' | 'upsert'`) wins; otherwise it infers it: no primary key means create, primary key plus other fields means update, primary key alone means delete. `mixed({ create, update, delete })` tags every row with `operation` explicitly (create rows, then update rows, then `{ [pk]: id, operation: 'delete' }` rows, in that order) so nothing is inferred. The whole request is one transaction.
+`POST {table}/bulk` takes a bare array of rows. The backend decides the operation per row: an explicit `operation` field (`'create' | 'update' | 'delete' | 'upsert'`) wins; otherwise it infers it: no primary key means create, primary key plus other fields means update, primary key alone means delete. `mixed({ create, update, delete })` tags every row with `operation` explicitly (create rows, then update rows, then `{ [pk]: id, operation: 'delete' }` rows, in that order) so nothing is inferred. Each request is one transaction: input larger than `chunkSize` is split into several requests, and each of those commits or fails on its own (see Chunking).
 
 Quirks of the mixed route, read from `RecordService::bulkRecord`:
 

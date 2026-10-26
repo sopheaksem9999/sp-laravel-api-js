@@ -2,7 +2,7 @@
 // Source: Acme - Internal Documentation (OpenAPI 3.0.3).
 // Table columns not in `required` (sp-laravel-api: nullable columns) are typed `name?: T | null`.
 
-/** Read schema for table `invoice_items` (excludes system timestamps, soft delete) */
+/** Read schema for table `invoice_items` (excludes soft delete; `created_at` / `updated_at` added by typegen) */
 export interface Invoice_itemsRead {
   /** format: date-time */
   created_at?: string | null;
@@ -34,7 +34,7 @@ export interface Invoice_itemsWrite {
   unit_price: number;
 }
 
-/** Read schema for table `invoices` (excludes system timestamps, soft delete) */
+/** Read schema for table `invoices` (excludes soft delete; `created_at` / `updated_at` added by typegen) */
 export interface InvoicesRead {
   /** format: date-time */
   created_at?: string | null;
@@ -68,7 +68,7 @@ export interface InvoicesWrite {
   status: 'draft' | 'open' | 'paid';
 }
 
-/** Read schema for table `sp_audit_logs` (excludes system timestamps, soft delete) */
+/** Read schema for table `sp_audit_logs` (excludes soft delete; `created_at` / `updated_at` added by typegen) */
 export interface Sp_audit_logsRead {
   /** format: date-time */
   created_at?: string | null;

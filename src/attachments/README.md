@@ -3,6 +3,7 @@
 Upload files (form, direct to storage, or S3 multipart for large files), clone temp files, build view/download URLs, link attachments to records and manage folders.
 
 ```ts
+// typecheck
 import { createApi } from '@sopheak/sp-laravel-api';
 import { attachments } from '@sopheak/sp-laravel-api/attachments';
 
@@ -35,7 +36,7 @@ The routes are table functions on `sp_attachments`: `{baseUrl}/sp_attachments/{r
 | `forRecord(t, id).link(ids, { collection })` | `POST …/record/{t}/{id}` | one request `{ attachment_ids: [...], collection_name? }` (backend >= 0.5.06, idempotent per id); with `quoting: false` (older hosts) one `{ attachment_id }` request per id, in order; returns the combined links |
 | `forRecord(t, id).unlink(attachmentId)` | `DELETE …/record/{t}/{id}/{attachmentId}` | |
 | `folders.list(where?, { perPage, cursor, page })` | `GET …/folders?per_page=…` | one page as an array; `per_page` is always sent (`perPage`, else `defaults.perPage`, else 25); filters carry operators; a bare value is sent as `eq` (`parent_id=eq.1`); the backend ignores a literal `parent_id=1` |
-| `folders.listPage(where?, { perPage, cursor, page })` | same | the core `Page` (`data`, `next`, `prev`, `total`, `meta`); `cursor: null` sends `cursor=0`. Current backends answer this route without `meta`, so `next` stays `null`: page with `page` (offset) there |
+| `folders.listPage(where?, { perPage, cursor, page })` | same | the core `Page` (`data`, `next`, `prev`, `total`, `meta`; import the type from the main entry: `import type { Page } from '@sopheak/sp-laravel-api'`); `cursor: null` sends `cursor=0`. Current backends answer this route without `meta`, so `next` stays `null`: page with `page` (offset) there |
 | `folders.create(b)` / `update(id, b)` / `remove(id)` | `POST …/folders`, `PUT …/folders/{id}`, `DELETE …/folders/{id}` | `remove` answers 409 when the folder is not empty |
 
 Differences from the older docs: the backend field is `collection_name` (the client option is `collection`); `name` on `upload` is the file name of the multipart part (the backend has no `name` field; it also accepts `title` and `caption`); ids are sent as strings because the backend validates them as strings.
@@ -53,6 +54,7 @@ From backend 0.5.06 the `url` / `download_url` fields in responses include the r
 Protected files need the auth header, which `<img src>` cannot send. Fetch the URL with the header and use a blob URL:
 
 ```ts
+// typecheck
 const res = await fetch(att.viewUrl(id, { w: 400 }), { headers: await auth.getHeaders() });
 img.src = URL.createObjectURL(await res.blob());
 ```
@@ -71,6 +73,7 @@ or use the signed, public `preview_url` when the host enables previews.
 Both need `attachments.direct_upload.enabled` on the host (off by default). When it is off the backend removes the routes, so a 404 on `create-upload-url` or `create-multipart-upload` (and `sign-multipart-part`) throws `SpApiError` with `code: 'module_disabled'` and `module: 'attachments.direct_upload'`. Every error from these flows carries `module: 'attachments.direct_upload'`; option validation errors carry `module: 'attachments'` and `code: 'unencodable_value'`.
 
 ```ts
+// typecheck
 // Direct: create-upload-url -> PUT to the signed URL (S3/R2) or POST the file (local disk) -> complete-upload
 const a = await att.uploadDirect(file, { visibility: 'private', contentType: 'image/png' });
 
@@ -103,7 +106,7 @@ Backend facts (verified against `AttachmentUploadController.php`, `AttachmentPre
 
 - **Visibility is sent identically on every call.** The upload token is an HMAC over key, disk, tenant, upload id and expiry, and the disk comes from the visibility. A different visibility (or tenant) on a later call fails with 422 "Invalid or expired upload token". The client sends `visibility` (default `'private'`, the backend default) on every call; `abort-multipart-upload` requires it.
 - **Local disk.** For a disk without presigned uploads `create-upload-url` answers `upload_url: null`, `method: 'POST'` and a `complete_endpoint`. That endpoint is the backend's own `complete-upload` route; the client posts the file to `…/complete-upload` built from its `baseUrl` (with auth and tenant), not to the server-built absolute URL, so proxies and base paths keep working.
-- **Signed URLs.** The PUT goes to the storage host with the runtime's `fetch` (`config.fetch ?? globalThis.fetch`) and only the headers the backend returned (PSR-7 arrays are joined with `, `; `Host` and `Content-Length` are left to the runtime). It never carries `Authorization`, the tenant header or `X-Request-ID`, and has no client timeout (use `signal`).
+- **Signed URLs.** The PUT goes to the storage host with the runtime's `fetch` (`config.fetch ?? globalThis.fetch`) and only the headers the backend returned (PSR-7 arrays are joined with `, `; `Host` and `Content-Length` are left to the runtime). The client itself never sends `Authorization`, the tenant header or `X-Request-ID` to a signed URL, and the PUT has no client timeout (use `signal`). **Do not inject an `Authorization` header through the `fetch` option** (a wrapper that adds the bearer token to every call): the direct-to-storage PUT reuses that injected `fetch`, so the token would leak to the storage host and S3/R2 rejects a request carrying both a signature and an `Authorization` header. Put auth in `auth.getHeaders()`, which only `api.request` calls.
 - **Size limits.** A direct upload is still bounded by `max_upload_size` (default 10 MB): the backend checks the stored object at `complete-upload` and deletes an oversize one (422). Multipart uploads are bounded only by the bucket.
 - **Part size.** S3 needs at least 5 MiB per part (except the last), at most 5 GiB per part and at most 10,000 parts; the backend enforces no other limit. The client rejects a `partSize` outside 5 MiB to 5 GiB with `unencodable_value`, and fails a stream that needs more than 10,000 parts: use a larger `partSize` for big streams. `create-multipart-upload` returns `part_size` (the host's `min_multipart_size_bytes`, default 100 MiB, documented as the file size above which multipart is used); the client does not use it and keeps its own `partSize` (default 8 MiB).
 - **Expiry.** `expires_at` is an integer unix timestamp in seconds, `presign_ttl_seconds` (default 1800) after creation. The token, and so a resume, stops working after it; `resume` with a state whose `expires_at` is already past fails at once with `unencodable_value`, before any request.
@@ -131,6 +134,9 @@ Browser uploads need a CORS policy on the bucket that allows `PUT` from your ori
 - A resume reuses the recorded `part_size` and `visibility`, so the options need not repeat them. Everything that would make the parts not line up is rejected with `unencodable_value` before any request: an explicit `partSize` or `visibility` that differs from the state, a source whose size differs from `state.size` (`null` when the upload started from a stream), duplicate part numbers, or a part number outside `1..ceil(size / part_size)`. Without these checks a different part size would make S3 stitch overlapping byte ranges into a corrupt object.
 
 ```ts
+// typecheck
+import type { MultipartState } from '@sopheak/sp-laravel-api/attachments';
+
 const saved = localStorage.getItem('upload');
 // part_size and visibility come from the saved state; a mismatching option is rejected.
 await att.uploadMultipart(file, {

@@ -1,6 +1,6 @@
 # @sopheak/sp-laravel-api
 
-Typed JavaScript client for the [`sopheak/sp-laravel-api`](https://packagist.org/packages/sopheak/sp-laravel-api) Laravel package. ESM and CJS, no runtime dependencies, runs in browsers, edge runtimes and Node 20+. CI runs the suite on Node 20, 22 and 24, on Deno and Bun, and under `@edge-runtime/vm`. The edge run proves the code works with the edge web globals, but it cannot block Node globals (vitest leaves `process` and `Buffer` visible there), so an AST scan of `src/` and the dist and browser-bundle checks are what keep Node-only code out.
+Typed JavaScript client for the [`sopheak/sp-laravel-api`](https://packagist.org/packages/sopheak/sp-laravel-api) Laravel package. ESM and CJS, no runtime dependencies, runs in browsers, edge runtimes and Node 20+. CI builds the package and smoke-imports it (CJS and ESM, plus the dist and bundle guards) on Node 20, and runs the test suite on Node 22 and 24 (Vitest 5 needs Node 22.12+), on Deno and Bun, and under `@edge-runtime/vm`. The edge run proves the code works with the edge web globals, but it cannot block Node globals (vitest leaves `process` and `Buffer` visible there), so an AST scan of `src/` and the dist and browser-bundle checks are what keep Node-only code out.
 
 It ships the core (`createApi`, `table()`, `api.fn()` / `api.rpc()`, the query serializer, pages and `iterate`, query-cache keys, and one error type), seven feature modules as subpath imports (`bulk`, `attachments`, `audit`, `permissions`, `webhooks`, `realtime`, `docs`; see [Modules](#modules)), and the Node-only `sp-laravel-api typegen` CLI.
 
@@ -16,6 +16,7 @@ Core only, no other package needed. This code is run by the test suite (`test/do
 
 <!-- snippet:quickstart -->
 ```ts
+// typecheck
 import { createApi } from '@sopheak/sp-laravel-api';
 
 const token = 'eyJ...'; // from your login flow
@@ -56,6 +57,22 @@ for await (const row of invoices.iterate({ where: { status: 'open' }, perPage: 1
 }
 ```
 
+### `createApi` options
+
+| Option | Default | Meaning |
+|---|---|---|
+| `baseUrl` | (required) | origin plus the host's `api_prefix`, e.g. `https://api.example.com/api/v2` |
+| `rpcPrefix` | `'rpc'` | the host's `rpc_prefix`; `''` means no prefix segment |
+| `auth` | none | `{ getHeaders(), handleUnauthorized? }`, see below |
+| `tenant` | none | `{ header, value: () => id }`; sent on every request when `value()` is not `null`/`undefined` |
+| `defaults` | `{ perPage: 25 }` | `perPage` and `total` used when a query does not set them |
+| `fetch` | `globalThis.fetch` | the `fetch` used for every call, including the attachments' direct-to-storage PUT (so never add auth headers in it; use `auth`) |
+| `timeoutMs` | `60000` | per-request timeout (`timeout` error); per call `timeoutMs` overrides it. `0`, a negative number, `Infinity` or anything above 2^31-1 means no timeout |
+| `quoting` | `true` | `false` for hosts older than 0.5.06: values that need quotes throw `unencodable_value` instead |
+| `driver` | none | `'mysql'` rejects the Postgres-only operators client-side (`unencodable_value`) |
+| `debug` | `false` | sends `X-Debug: 1` on every request (per call: `debug: true`) |
+| `onEvent` | none | diagnostics hook. **Only the `realtime` module emits anything** (`{ type: 'realtime_handler_error' }` when your `onChange` throws); the core and the other modules never call it, so it is not a request log |
+
 `auth` is any object with `getHeaders(): Promise<Record<string, string>>`. It may also have `handleUnauthorized(failed?: { headers }): Promise<boolean>`: on a 401 the client calls it once, passing the headers sent on the failed attempt (lowercase keys), and, if it resolves `true`, retries the request once with fresh headers. Omit `auth` for public tables.
 
 Other table methods: `update` (PUT), `patch`, `remove`, `restore`, `upsert`, `aggregate`. `restore(id)` resolves `{ restored: number }` (the backend's count, typed `RestoreResult`), not the row; call `get(id)` afterwards if you need it. `api.fn('invoices', 'approve', { id: 7, method: 'POST' })` calls a table function and `api.rpc('auth/whoami')` a global one. `api.request()` is the low-level call for anything else.
@@ -79,7 +96,7 @@ The query object is serialised for you; nobody hand-writes filter strings. What 
 - **`any` / `all` modifiers are never quoted.** `where: { name: { like: { any: ['a%', 'b%'] } } }` is sent as `name=like(any).{a%,b%}`. The host splits that list on plain commas and does not understand quotes, so an empty list, an empty item, or an item containing `,`, `{`, `}`, `"`, `\` or leading/trailing spaces throws `unencodable_value` (with or without `quoting`) instead of silently becoming a different filter.
 - **Lists are always `in.(...)`.** A bare array means `in`; a bare scalar means `eq`. The bracket syntax is never produced.
 - **Quoting.** Any value or list item containing `,`, `(`, `)`, `"` or `\`, or with leading or trailing spaces, is sent in double quotes (`eq."Acme, Inc."`). Other values are sent bare.
-- **Cursor paging.** `cursor: null` sends `cursor=0` (the first page); a cursor string is sent as is; an empty `cursor=` is never sent. `page.next` is the next cursor, or `null` at the end. `iterate()` handles this for you. Use `page: 2` for offset paging instead (`iterate()` needs cursor mode).
+- **Cursor paging.** `cursor: null` sends `cursor=0` (the first page); a cursor string is sent as is; an empty `cursor=` is never sent. `page.next` is the next cursor, or `null` at the end. `iterate()` handles this for you. Use `page: 2` for offset paging instead; offset mode never yields `next` (it is always `null` there, so step `page` yourself), and `iterate()` needs cursor mode.
 - **`per_page` is always sent** on list calls (default 25; set `defaults.perPage` on the client or `perPage` per query). `total: true` asks for a total, returned as `page.total`.
 - **Hosts older than 0.5.06** have no quoting and split every value on commas. Pass `createApi({ quoting: false })` and the serializer throws `SpApiError` with code `unencodable_value` for a value it cannot send safely, instead of sending a filter the server would misread.
 
@@ -88,6 +105,7 @@ The query object is serialised for you; nobody hand-writes filter strings. What 
 Every failure (HTTP error, Laravel validation response, HTML error page, empty body, network, timeout) is thrown as one `SpApiError`.
 
 ```ts
+// typecheck
 import { isSpApiError } from '@sopheak/sp-laravel-api';
 
 try {
@@ -127,6 +145,7 @@ The package keeps no cache of its own. `api.keys` gives stable, serialisable key
 
 <!-- snippet:tanstack -->
 ```ts
+// typecheck
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { Query } from '@sopheak/sp-laravel-api';
 
@@ -154,6 +173,7 @@ The client does not care which framework you use: it is plain functions. The exa
 **This package does not depend on `@sopheak/sp-jwt-auth`.** Those two methods come from the sibling package `@sopheak/sp-jwt-auth` (`createJwtAuth(...)`, which also satisfies the `ApiAuth` seam by exposing `getHeaders()`). Any object with `getHeaders()` works as `auth` here; use your own if you do not need that package.
 
 ```ts
+// typecheck
 import { createApi } from '@sopheak/sp-laravel-api';
 import { createJwtAuth } from '@sopheak/sp-jwt-auth';
 
@@ -182,6 +202,9 @@ These glue lines depend on the framework and on `@sopheak/sp-jwt-auth`, so they 
 The client calls `fetch`, not Angular's `HttpClient`, so `HttpClient` interceptors (loading bars, logging) do not see its requests. Put such concerns in a wrapper passed as the `fetch` option:
 
 ```ts
+// typecheck
+import { createApi } from '@sopheak/sp-laravel-api';
+
 const api = createApi({
   baseUrl: '/api/v2',
   fetch: async (input, init) => {
@@ -205,6 +228,9 @@ On a server, who the request is made as decides how many `createApi` instances y
 - **The server acts as itself** (a service account or client-credentials token, a fixed tenant): one shared instance for the whole process is correct.
 
 ```ts
+// typecheck
+import { createApi } from '@sopheak/sp-laravel-api';
+
 // Express, as the calling user: a new instance per request
 app.use((req, _res, next) => {
   const token = req.headers.authorization?.replace(/^Bearer /, '') ?? '';
@@ -242,6 +268,7 @@ Each is a function that takes a table from the core client, so bundlers drop wha
 ### Bulk
 
 ```ts
+// typecheck
 import { bulk } from '@sopheak/sp-laravel-api/bulk';
 
 const invoices = bulk(api.table<Invoice>('invoices'));
@@ -250,11 +277,12 @@ if (!('queued' in r)) console.log(r.affected, r.rows);
 await invoices.upsert(rows, { matchOn: ['number'] }); // { count }
 ```
 
-`create`, `update`, `delete`, `upsert` and `mixed`, with `chunkSize`, `concurrency`, `async` and `signal` options. Each chunk is its own backend transaction; a failed call throws with `error.completedChunks`. See [src/bulk/README.md](src/bulk/README.md) for the backend contract, limits and async behaviour.
+`create`, `update`, `delete`, `upsert` and `mixed`, with `chunkSize`, `concurrency`, `async` and `signal` options. Each chunk (each request, also for `mixed`) is its own backend transaction; a failed call throws with `error.completedChunks`. A mistyped table name reads as `module_disabled` (the bulk routes' only 404). See [src/bulk/README.md](src/bulk/README.md) for the backend contract, limits and async behaviour.
 
 ### Attachments
 
 ```ts
+// typecheck
 import { attachments } from '@sopheak/sp-laravel-api/attachments';
 
 const att = attachments(api);
@@ -269,19 +297,22 @@ const big = await att.uploadMultipart(video, { onProgress: ({ loaded, total }) =
 ### Audit
 
 ```ts
+// typecheck
 import { audit } from '@sopheak/sp-laravel-api/audit';
 
 const log = audit(api);
-const page = await log.list({ include: ['user'] });           // read-only sp_audit_logs
+// read-only sp_audit_logs; relations are embedded through select (there is no include parameter)
+const page = await log.list({ select: ['*', { user: ['id', 'name'] }], sort: { by: 'created_at', order: 'desc' } });
 const s = await log.stats({ startDate: '2026-01-01', event: 'updated' }); // { total, by_event, by_user, by_entity }
 const history = await log.fieldTimeline('invoices', 42, 'status', { limit: 20 });
 ```
 
-`list`, `stats`, `fieldTimeline` and `fieldStats`. The tenant always comes from the client's tenant header: there is no `tenantId` option and no `tenant_id` is ever sent. The calls need the Gate `manage-audit-logs` (401 `unauthenticated`, 403 `forbidden`); the audit routes are off by default and a 404 on the three function routes is `module_disabled`. See [src/audit/README.md](src/audit/README.md).
+`list`, `stats`, `fieldTimeline` and `fieldStats`. `startDate` / `endDate` are compared by the backend as given, so a date-only `endDate` excludes that day after 00:00:00. The tenant always comes from the client's tenant header: there is no `tenantId` option and no `tenant_id` is ever sent. The calls need the Gate `manage-audit-logs` (401 `unauthenticated`, 403 `forbidden`); the audit routes are off by default and a 404 on the three function routes is `module_disabled`. See [src/audit/README.md](src/audit/README.md).
 
 ### Permissions
 
 ```ts
+// typecheck
 import { permissions } from '@sopheak/sp-laravel-api/permissions';
 
 const p = permissions(api);
@@ -295,6 +326,7 @@ await p.detach(role.id, [2]);     // detach the link only; the permission row st
 ### Webhooks
 
 ```ts
+// typecheck
 import { webhooks, verifyWebhook, parseWebhook } from '@sopheak/sp-laravel-api/webhooks';
 
 // Admin: the backend never generates or returns the secret, so the client creates it and shows it once.
@@ -318,11 +350,12 @@ The signature (`X-Webhook-Signature`, bare lowercase hex HMAC-SHA256 of the exac
 - Next.js route handler, SvelteKit `+server.ts`, Astro endpoint, Remix action, Cloudflare Workers: `await request.text()`
 - Nuxt / h3: `await readRawBody(event)`
 
-`verifyWebhook` returns `false` (never throws) for any bad or missing header. `endpoints.create` and `endpoints.rotateSecret(id)` return `{ endpoint, secret }` once; `secret` is stripped from every read, `deliveries` is read-only, and `subscriptions` is full CRUD. Webhooks are off by default on the host (`webhooks.enabled`), and with the module off the tables 404 as `not_found`. See [src/webhooks/README.md](src/webhooks/README.md).
+`verifyWebhook` returns `false` (never throws) for any bad or missing header. `endpoints.create` and `endpoints.rotateSecret(id)` return `{ endpoint, secret }` once (if either times out after the host applied it, the new secret is lost and deliveries fail verification: rotate again); `secret` is stripped from every read, `deliveries` is read-only, and `subscriptions` is full CRUD. Webhooks are off by default on the host (`webhooks.enabled`), and with the module off the tables 404 as `not_found`. See [src/webhooks/README.md](src/webhooks/README.md).
 
 ### Realtime
 
 ```ts
+// typecheck
 import { realtime } from '@sopheak/sp-laravel-api/realtime';
 
 const rt = realtime(api);
@@ -336,8 +369,10 @@ The module is transport-free: `handler` returns a callback that takes the broadc
 React:
 
 ```tsx
+// typecheck
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { realtime } from '@sopheak/sp-laravel-api/realtime';
 
 function useRealtime(echo: Echo, tenantId: number | null, tables: string[]) {
   const queryClient = useQueryClient();
@@ -359,8 +394,10 @@ function useRealtime(echo: Echo, tenantId: number | null, tables: string[]) {
 Vue:
 
 ```ts
+// typecheck
 import { watchEffect, type Ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
+import { realtime } from '@sopheak/sp-laravel-api/realtime';
 
 export function useRealtime(echo: Echo, tenantId: Ref<number | null>, tables: string[]) {
   const queryClient = useQueryClient();
@@ -390,6 +427,7 @@ See [src/realtime/README.md](src/realtime/README.md).
 ### Docs and capabilities
 
 ```ts
+// typecheck
 import { capabilities, docs } from '@sopheak/sp-laravel-api/docs';
 
 const doc = await docs(api).openapi(); // OpenAPI 3.0.3 document
@@ -413,6 +451,8 @@ npx sp-laravel-api typegen --file openapi.json --out src/types/sp-api.ts  # offl
 ```
 
 ```ts
+// typecheck
+import { createApi } from '@sopheak/sp-laravel-api';
 import type { Tables } from './types/sp-api';
 
 const api = createApi<Tables>({ baseUrl: '/api/v2' });

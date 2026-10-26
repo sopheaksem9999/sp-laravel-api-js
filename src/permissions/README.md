@@ -3,6 +3,7 @@
 Manage roles, read permissions, and attach or detach permissions on a role.
 
 ```ts
+// typecheck
 import { createApi } from '@sopheak/sp-laravel-api';
 import { permissions } from '@sopheak/sp-laravel-api/permissions';
 

@@ -1,6 +1,7 @@
 # `@sopheak/sp-laravel-api/realtime`
 
 ```ts
+// typecheck
 import { realtime } from '@sopheak/sp-laravel-api/realtime';
 
 const rt = realtime(api);
@@ -14,8 +15,10 @@ The module is transport-free: `handler` returns a callback that takes the broadc
 React:
 
 ```tsx
+// typecheck
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { realtime } from '@sopheak/sp-laravel-api/realtime';
 
 function useRealtime(echo: Echo, tenantId: number | null, tables: string[]) {
   const queryClient = useQueryClient();
@@ -37,8 +40,10 @@ function useRealtime(echo: Echo, tenantId: number | null, tables: string[]) {
 Vue:
 
 ```ts
+// typecheck
 import { watchEffect, type Ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
+import { realtime } from '@sopheak/sp-laravel-api/realtime';
 
 export function useRealtime(echo: Echo, tenantId: Ref<number | null>, tables: string[]) {
   const queryClient = useQueryClient();

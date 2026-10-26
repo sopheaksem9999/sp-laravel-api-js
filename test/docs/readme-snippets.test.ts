@@ -181,9 +181,11 @@ function block(source: string, name: string): string {
   return normalise(m[1]!);
 }
 
-/** Drops single-line imports (the test imports from src/) and common indentation. */
+/** Drops single-line imports (the test imports from src/), the `// typecheck` marker and common indentation. */
 function normalise(code: string): string {
-  const lines = code.split('\n').filter((l) => !/^\s*(\/\/\s*)?import .*;\s*$/.test(l));
+  const lines = code
+    .split('\n')
+    .filter((l) => !/^\s*(\/\/\s*)?import .*;\s*$/.test(l) && !/^\s*\/\/ (typecheck|illustrative)\s*$/.test(l));
   const indents = lines.filter((l) => l.trim() !== '').map((l) => /^ */.exec(l)![0].length);
   const cut = Math.min(...indents);
   return lines

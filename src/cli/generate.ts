@@ -211,7 +211,8 @@ class Generator {
   declaration(name: string, omitReadOnly: boolean, table?: TableMode): string {
     const schema = this.schemas[name];
     const id = ident(name);
-    const doc = isRecord(schema) ? this.jsdoc(schema) : '';
+    let doc = isRecord(schema) ? this.jsdoc(schema) : '';
+    if (table?.kind === 'read' && table.extra !== undefined && Object.keys(table.extra).length > 0) doc = timestampsNote(doc);
     const head = doc === '' ? '' : `/** ${doc} */\n`;
     if (isRecord(schema) && schema.$ref === undefined && schema.nullable !== true && !Array.isArray(schema.enum)) {
       const isObject = schema.type === 'object' || (schema.type === undefined && isRecord(schema.properties));
@@ -222,6 +223,24 @@ class Generator {
     }
     return `${head}export type ${id} = ${this.type(schema, '', omitReadOnly)};\n`;
   }
+}
+
+/**
+ * The backend describes `{Name}Read` as "(excludes system timestamps, soft delete)", but typegen adds `created_at` /
+ * `updated_at` back from the full schema: drop that claim and say where the timestamps come from.
+ */
+function timestampsNote(doc: string): string {
+  if (!/system timestamps/.test(doc)) return doc;
+  const stripped = doc
+    .replace(/\(excludes system timestamps\)/, '')
+    .replace(/system timestamps,\s*/, '')
+    .replace(/,\s*system timestamps/, '')
+    .replace(/\s*\)$/, '')
+    .trimEnd();
+  // An unclosed "(excludes soft delete" gets the note inside the same parentheses.
+  return /\([^)]*$/.test(stripped)
+    ? `${stripped}; \`created_at\` / \`updated_at\` added by typegen)`
+    : `${stripped} (\`created_at\` / \`updated_at\` added by typegen)`;
 }
 
 /** Every `$ref` string anywhere under `v`. */
