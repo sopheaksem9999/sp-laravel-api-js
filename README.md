@@ -74,8 +74,9 @@ The query object is serialised for you; nobody hand-writes filter strings. What 
 | `select: ['id', { customer: ['id', 'display_name'] }]` | `select=id,customer(id,display_name)` |
 | `sort: { by: 'created_at', order: 'desc' }` | `sortby=created_at&order=desc` |
 | `search: { s: 'acme' }` | `s=acme` (or `{ search: 'acme' }`, depending on the table) |
-| `where: { raw: 'qty=gt.5' }` | `qty=gt.5` (escape hatch for anything the builder does not cover) |
+| `where: { raw: 'qty=gt.5' }` | `qty=gt.5` (escape hatch for anything the builder does not cover; a `raw` with no `col=` part throws `unencodable_value`) |
 
+- **`any` / `all` modifiers are never quoted.** `where: { name: { like: { any: ['a%', 'b%'] } } }` is sent as `name=like(any).{a%,b%}`. The host splits that list on plain commas and does not understand quotes, so an empty list, an empty item, or an item containing `,`, `{`, `}`, `"`, `\` or leading/trailing spaces throws `unencodable_value` (with or without `quoting`) instead of silently becoming a different filter.
 - **Lists are always `in.(...)`.** A bare array means `in`; a bare scalar means `eq`. The bracket syntax is never produced.
 - **Quoting.** Any value or list item containing `,`, `(`, `)`, `"` or `\`, or with leading or trailing spaces, is sent in double quotes (`eq."Acme, Inc."`). Other values are sent bare.
 - **Cursor paging.** `cursor: null` sends `cursor=0` (the first page); a cursor string is sent as is; an empty `cursor=` is never sent. `page.next` is the next cursor, or `null` at the end. `iterate()` handles this for you. Use `page: 2` for offset paging instead (`iterate()` needs cursor mode).

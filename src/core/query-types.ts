@@ -17,7 +17,11 @@ export type Operator =
 /** A single filter value. `Date` is sent as an ISO string. */
 export type Scalar = string | number | boolean | Date | null;
 
-/** `any` / `all` modifier: the operator matches any (or all) of the listed values, e.g. `like(any).{a%,b%}`. */
+/**
+ * `any` / `all` modifier: the operator matches any (or all) of the listed values, e.g. `like(any).{a%,b%}`.
+ * Items are never quoted (the host splits the list on commas and does not understand quotes): an empty list, an
+ * empty item, or an item containing `,` `{` `}` `"` `\` or leading/trailing spaces throws `unencodable_value`.
+ */
 export type Modifier = { any: Scalar[] } | { all: Scalar[] };
 
 /** The right-hand side of one operator: a value, a list, or an `any`/`all` modifier. */
@@ -33,7 +37,7 @@ export type Condition = Scalar | Scalar[] | OperatorMap;
 
 /**
  * Column filters keyed by column name. Reserved keys:
- * - `raw`: a literal `'col=op.value'` pair;
+ * - `raw`: a literal `'col=op.value'` pair (a value with no `=` after a non-empty column throws `unencodable_value`);
  * - `anyOf`: columns ORed together (`name,sku=op.v`); the remaining keys are then operators, not columns,
  *   e.g. `{ anyOf: ['name', 'sku'], ilike: 'cola' }`.
  */

@@ -156,3 +156,36 @@ describe('drivers', () => {
     expect(q({ where: { t: { regex: 'x' } } }, { driver: 'pgsql' }).get('t')).toBe('regex.x');
   });
 });
+
+describe('any / all items the backend cannot parse (plain explode on commas, no quote handling)', () => {
+  it.each([true, false])('rejects an empty list (quoting %s)', (quoting) => {
+    unencodable(() => q({ where: { name: { like: { any: [] } } } }, { quoting }));
+    unencodable(() => q({ where: { name: { like: { all: [] } } } }, { quoting }));
+  });
+
+  it.each([true, false])('rejects items with , { } " \\ or edge spaces (quoting %s)', (quoting) => {
+    for (const bad of ['Acme, Inc%', 'a{b', 'a}b', 'say "x"', 'back\\slash', ' lead', 'trail ', '']) {
+      unencodable(() => q({ where: { name: { like: { any: [bad] } } } }, { quoting }));
+      unencodable(() => q({ where: { name: { like: { all: ['ok', bad] } } } }, { quoting }));
+    }
+  });
+
+  it('still sends safe items bare, including ( and ) which the backend keeps', () => {
+    expect(q({ where: { name: { like: { any: ['a(b)%', 'c d'] } } } }).get('name')).toBe('like(any).{a(b)%,c d}');
+  });
+});
+
+describe('runtime guards for shapes the types forbid', () => {
+  it('rejects an array sort instead of sending sortby=undefined', () => {
+    unencodable(() => q({ sort: ['-created_at'] } as unknown as Query));
+  });
+
+  it('rejects a sort without a string `by`', () => {
+    unencodable(() => q({ sort: {} } as unknown as Query));
+  });
+
+  it('rejects a raw filter with no `=` instead of dropping it', () => {
+    unencodable(() => q({ where: { raw: 'no-equals' } }));
+    unencodable(() => q({ where: { raw: '=leading' } }));
+  });
+});

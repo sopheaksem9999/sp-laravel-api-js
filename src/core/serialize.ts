@@ -11,6 +11,11 @@ import type {
 } from './query-types';
 
 const NEEDS_QUOTES = /[,()"\\]|^\s|\s$/;
+/**
+ * Characters an `any`/`all` list item cannot carry: the host's `parseModifierValues` is a plain
+ * `explode(',')` + `trim` inside `{...}` with no quote handling, so quoting cannot protect them.
+ */
+const MODIFIER_UNSAFE = /[,{}"\\]|^\s|\s$/;
 const LIST_OPERATORS: ReadonlySet<string> = new Set(['in', 'not_in', 'between', 'not_between']);
 const LITERAL_OPERATORS: ReadonlySet<string> = new Set(['is', 'is_not']);
 const FALLBACK_PER_PAGE = 25;
@@ -115,8 +120,20 @@ function formatOperand(o: Op, quoting: boolean): string {
     }
   }
   if (o.modifier !== undefined) {
-    const list = (Array.isArray(value) ? value : [value]).map((x) => formatValue(x, quoting)).join(',');
-    return `${prefix}${op}(${o.modifier}).{${list}}`;
+    const items = Array.isArray(value) ? value : [value];
+    if (items.length === 0) throw unencodable(`The "${o.modifier}" modifier needs at least one value`);
+    const list = items.map((x) => {
+      const s = x === null ? 'null' : x instanceof Date ? x.toISOString() : String(x);
+      // Checked regardless of `quoting`: the host never unquotes modifier items, and drops empty ones.
+      if (s === '' || MODIFIER_UNSAFE.test(s)) {
+        throw unencodable(
+          `"${o.modifier}" item ${JSON.stringify(s)} cannot be sent: the host splits the list on commas and does not ` +
+            'understand quotes, so items must be non-empty and contain no , { } " \\ or leading/trailing spaces',
+        );
+      }
+      return s;
+    });
+    return `${prefix}${op}(${o.modifier}).{${list.join(',')}}`;
   }
   if (Array.isArray(value)) return `${prefix}${op}.(${value.map((x) => formatValue(x, quoting)).join(',')})`;
   if (LIST_OPERATORS.has(op)) return `${prefix}${op}.(${formatValue(value, quoting)})`;
@@ -213,7 +230,8 @@ export function serializeQuery(q: Query, opts: SerializeOptions): URLSearchParam
     const { raw, entries } = columns(q.where);
     if (raw !== undefined) {
       const eq = raw.indexOf('=');
-      if (eq > 0) p.set(raw.slice(0, eq), raw.slice(eq + 1));
+      if (eq <= 0) throw unencodable(`"raw" must be a 'col=op.value' pair; got ${JSON.stringify(raw)}`);
+      p.set(raw.slice(0, eq), raw.slice(eq + 1));
     }
     for (const [col, ops] of entries) {
       for (const o of ops) validate(o, opts, false);
@@ -246,6 +264,10 @@ export function serializeQuery(q: Query, opts: SerializeOptions): URLSearchParam
   }
 
   if (q.sort !== undefined) {
+    // Runtime guard for untyped callers: `sort: ['-created_at']` would otherwise send `sortby=undefined`.
+    if (Array.isArray(q.sort) || typeof q.sort !== 'object' || q.sort === null || typeof q.sort.by !== 'string') {
+      throw unencodable('"sort" must be { by: string, order?: "asc" | "desc" } (one column; arrays are not supported)');
+    }
     p.set('sortby', q.sort.by);
     if (q.sort.order !== undefined) p.set('order', q.sort.order);
   }
