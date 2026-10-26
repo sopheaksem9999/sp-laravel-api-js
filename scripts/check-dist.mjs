@@ -52,6 +52,7 @@ const MODULE_MARKERS_BY_MODULE = {
   ],
   audit: ['sp_audit_logs', 'field-timeline', 'field-stats'],
   permissions: ['sp_roles', 'sp_permissions', '_delete'],
+  webhooks: ['sp_webhook_endpoints', 'sp_webhook_subscriptions', 'sp_webhook_deliveries', 'x-webhook-event'],
 };
 const MODULE_MARKERS = Object.values(MODULE_MARKERS_BY_MODULE).flat();
 const vacuous = [];
@@ -116,6 +117,19 @@ const permApi = core.createApi({ baseUrl: 'https://x.test', fetch: async () => n
 const permThrown = await perm.permissions(permApi).assign(1, [1]).catch((e) => e);
 if (!(permThrown instanceof core.SpApiError)) {
   console.error('check-dist: permissions.cjs throws an SpApiError that is not instanceof the main entry SpApiError (splitting off?)');
+  process.exit(1);
+}
+const hook = require(join(root, 'webhooks.cjs'));
+const hookThrown = (() => {
+  try {
+    hook.parseWebhook({ headers: {}, rawBody: '{}' });
+  } catch (e) {
+    return e;
+  }
+  return null;
+})();
+if (!(hookThrown instanceof core.SpApiError)) {
+  console.error('check-dist: webhooks.cjs throws an SpApiError that is not instanceof the main entry SpApiError (splitting off?)');
   process.exit(1);
 }
 console.log('check-dist: ok');

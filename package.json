@@ -25,6 +25,9 @@
       ],
       "permissions": [
         "./dist/permissions.d.ts"
+      ],
+      "webhooks": [
+        "./dist/webhooks.d.ts"
       ]
     }
   },
@@ -77,6 +80,16 @@
       "require": {
         "types": "./dist/permissions.d.cts",
         "default": "./dist/permissions.cjs"
+      }
+    },
+    "./webhooks": {
+      "import": {
+        "types": "./dist/webhooks.d.ts",
+        "default": "./dist/webhooks.js"
+      },
+      "require": {
+        "types": "./dist/webhooks.d.cts",
+        "default": "./dist/webhooks.cjs"
       }
     }
   },

@@ -224,7 +224,7 @@ const laravel = createApi({
 
 ## Modules
 
-The core is in 0.1. `bulk`, `attachments`, `audit` and `permissions` are available as subpath imports; the other modules below are planned and are **not in this release**: their import paths do not exist yet, and importing them fails.
+The core is in 0.1. `bulk`, `attachments`, `audit`, `permissions` and `webhooks` are available as subpath imports; the other modules below are planned and are **not in this release**: their import paths do not exist yet, and importing them fails.
 
 | Backend module | Import path | Status |
 |---|---|---|
@@ -232,7 +232,7 @@ The core is in 0.1. `bulk`, `attachments`, `audit` and `permissions` are availab
 | `attachments` | `@sopheak/sp-laravel-api/attachments` | available (see below) |
 | `audit` | `@sopheak/sp-laravel-api/audit` | available (see below) |
 | `permissions` | `@sopheak/sp-laravel-api/permissions` | available (see below) |
-| `webhooks` | `@sopheak/sp-laravel-api/webhooks` | coming in 0.2 |
+| `webhooks` | `@sopheak/sp-laravel-api/webhooks` | available (see below) |
 | Broadcasting | `@sopheak/sp-laravel-api/realtime` | coming in 0.2 |
 | `api_docs` | `@sopheak/sp-laravel-api/docs` | coming in 0.2 |
 
@@ -290,6 +290,34 @@ await p.detach(role.id, [2]);     // detach the link only; the permission row st
 ```
 
 `roles` (`sp_roles` CRUD), `permissions` (`sp_permissions`: `list`, `get`, `update` only), `assign` and `detach`. A 404 on `assign` / `detach` is `not_found` (missing role), never `module_disabled`. See [src/permissions/README.md](src/permissions/README.md).
+
+### Webhooks
+
+```ts
+import { webhooks, verifyWebhook, parseWebhook } from '@sopheak/sp-laravel-api/webhooks';
+
+// Admin: the backend never generates or returns the secret, so the client creates it and shows it once.
+const w = webhooks(api);
+const { endpoint, secret } = await w.endpoints.create({ name: 'Sync', url: 'https://app.example/hooks/laravel' });
+await w.subscriptions.create({ endpoint_id: endpoint.id, table_name: 'invoices', event: 'created' });
+
+// Receiver (Express): verify the raw body, then read it
+app.post('/hooks/laravel', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!(await verifyWebhook(req.body, req.get('X-Webhook-Signature'), process.env.SP_WEBHOOK_SECRET!)))
+    return res.status(401).end();
+  const { table, action, record } = parseWebhook({ headers: req.headers, rawBody: req.body });
+  res.status(204).end();
+});
+```
+
+The signature (`X-Webhook-Signature`, bare lowercase hex HMAC-SHA256 of the exact body) needs the **raw** body, not a parsed-and-serialised one:
+
+- Express: `express.raw({ type: 'application/json' })` on the webhook route
+- NestJS: `NestFactory.create(App, { rawBody: true })`, then `req.rawBody`
+- Next.js route handler, SvelteKit `+server.ts`, Astro endpoint, Remix action, Cloudflare Workers: `await request.text()`
+- Nuxt / h3: `await readRawBody(event)`
+
+`verifyWebhook` returns `false` (never throws) for any bad or missing header. `endpoints.create` and `endpoints.rotateSecret(id)` return `{ endpoint, secret }` once; `secret` is stripped from every read, `deliveries` is read-only, and `subscriptions` is full CRUD. Webhooks are off by default on the host (`webhooks.enabled`), and with the module off the tables 404 as `not_found`. See [src/webhooks/README.md](src/webhooks/README.md).
 
 ## Backend compatibility
 
