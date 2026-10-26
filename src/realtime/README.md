@@ -58,7 +58,7 @@ export function useRealtime(echo: Echo, tenantId: Ref<number | null>, tables: st
 ```
 
 - The backend event is named `{table}.{action}` through `broadcastAs()`, so Echo needs the **leading dot** (`.invoices.created`); without it Echo prefixes its own namespace and never matches.
-- The channel is `private-tenant.{id}` on the wire; Echo adds `private-` itself. With no tenant id (empty, `0`) the backend uses `tenant.global`, and so does `channelName`.
+- The channel is `private-tenant.{id}` on the wire; Echo adds `private-` itself. With no tenant id (empty, `0`, `'0'`) the backend uses `tenant.global`, and so does `channelName`.
 - Bulk upsert broadcasts once, as one batched `upserted` event, with `record = { count, match_on, keys }` (the match keys of every upserted row; no full rows). Treat it as "this table changed" and invalidate. Hosts older than 0.5.06 do not broadcast bulk upsert at all. Force delete broadcasts `deleted`.
 - A malformed payload, or an `action` the client does not know, is ignored. The callback never throws; an `onChange` that throws is swallowed and reported through `onEvent` as `{ type: 'realtime_handler_error' }` with a fixed message and no payload data.
 - With `bulk(table).*({ async: true })` the only way to see completion is the realtime events (or re-reading).

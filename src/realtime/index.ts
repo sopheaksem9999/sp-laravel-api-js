@@ -19,7 +19,7 @@ export interface RealtimeChange {
 /** Options of `handler`. */
 export interface RealtimeHandlerOptions {
   /** Called for every valid broadcast. If it throws, the error is swallowed (see `handler`). */
-  onChange: (change: RealtimeChange) => void;
+  onChange: (change: RealtimeChange) => void | PromiseLike<unknown>;
 }
 
 /** What `realtime(api)` returns. */
@@ -28,7 +28,7 @@ export interface Realtime {
    * Builds a transport-free callback for the broadcast payload. Malformed payloads (not an object, empty or
    * non-string `table`, an `action` outside the five known ones) are ignored. The callback never throws: an
    * `onChange` that throws is swallowed and reported once through `api.config.onEvent` as
-   * `{ type: 'realtime_handler_error' }` (a fixed message, no payload data).
+   * `{ type: 'realtime_handler_error' }` (a fixed message, no payload data); a rejected promise returned by `onChange` is reported the same way. Reading the payload never throws either: a throwing getter or Proxy trap (including on `record`) makes the payload ignored, silently.
    */
   handler(o: RealtimeHandlerOptions): (payload: unknown) => void;
   /** `tenant.{id}`, or `tenant.global` when the id is empty (the backend's `empty($tenantId)`: null, '', 0, '0'). */
@@ -58,12 +58,24 @@ export function realtime(api: Api): Realtime {
   return {
     handler({ onChange }) {
       return (payload) => {
-        if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return;
-        const p = payload as Record<string, unknown>;
-        const { table, action } = p;
-        if (typeof table !== 'string' || table === '' || !isAction(action)) return;
+        let change: RealtimeChange;
         try {
-          onChange({ table, action, record: p.record, queryKey: api.keys.table(table) });
+          // All payload access is guarded: throwing getters, throwing Proxy traps and the like are ignored.
+          if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return;
+          const p = payload as Record<string, unknown>;
+          const table = p.table;
+          const action = p.action;
+          if (typeof table !== 'string' || table === '' || !isAction(action)) return;
+          change = { table, action, record: p.record, queryKey: api.keys.table(table) };
+        } catch {
+          return;
+        }
+        try {
+          const out: unknown = onChange(change);
+          if (out !== null && (typeof out === 'object' || typeof out === 'function')) {
+            const then = (out as { then?: unknown }).then;
+            if (typeof then === 'function') (then as PromiseLike<unknown>['then']).call(out, undefined, report);
+          }
         } catch {
           report();
         }
