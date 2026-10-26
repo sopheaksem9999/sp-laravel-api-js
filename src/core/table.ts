@@ -1,6 +1,8 @@
+import { SpApiError } from './errors';
 import { buildPage } from './page';
 import type { Page } from './page';
-import type { Query, SelectItem } from './query-types';
+import type { AggregateRow, AggregateSpec, Query, SelectItem, Where } from './query-types';
+import type { Api } from './create-api';
 import type { createRequester } from './request';
 
 export type { Page } from './page';
@@ -16,6 +18,8 @@ type Id = string | number;
 
 export interface Table<T> {
   readonly name: string;
+  /** The client that created this table (used by sibling modules such as bulk). */
+  readonly api: Api;
   list(q?: Query, o?: CallOptions): Promise<Page<T>>;
   get(id: Id, o?: { select?: SelectItem[] } & CallOptions): Promise<T>;
   create(body: Partial<T>, o?: CallOptions): Promise<T>;
@@ -28,7 +32,14 @@ export interface Table<T> {
     o: { matchOn: string[]; refetch?: boolean; select?: SelectItem[] } & CallOptions,
   ): Promise<{ id: unknown; payload: unknown } | T>;
   iterate(q?: Query, o?: CallOptions): AsyncGenerator<T>;
+  aggregate<const S extends AggregateSpec, const G extends string = never>(
+    spec: S,
+    o?: { where?: Where; groupBy?: G[] } & CallOptions,
+  ): Promise<{ rows: AggregateRow<S, G[]>[]; meta: Record<string, unknown> }>;
 }
+
+/** A table before `createApi` attaches `api`. */
+export type TableCore<T> = Omit<Table<T>, 'api'>;
 
 /** Encodes one path segment (table name or id). */
 const seg = (s: string | number): string => encodeURIComponent(String(s));
@@ -45,10 +56,11 @@ function callOpts(o: CallOptions | undefined): CallOptions {
 export function makeTable<T>(
   name: string,
   ctx: { request: ReturnType<typeof createRequester>; serialize: (q: Query) => URLSearchParams },
-): Table<T> {
+): TableCore<T> {
   const { request, serialize } = ctx;
   const base = seg(name);
 
+  // With neither `cursor` nor `page` nothing is sent for either; `next` is meta.next_cursor on a full page.
   const list = async (q: Query = {}, o?: CallOptions): Promise<Page<T>> => {
     const params = serialize(q);
     const perPage = Number(params.get('per_page'));
@@ -99,19 +111,33 @@ export function makeTable<T>(
         ...callOpts(o),
       });
       if (o.refetch === true) {
+        // Code 'unknown': the host broke its contract (no id in the upsert response).
+        if (r.data === null || r.data === undefined || r.data.id === undefined || r.data.id === null) {
+          throw new SpApiError({ status: 0, code: 'unknown', message: 'upsert refetch requested but the response had no id' });
+        }
         return get(r.data.id as Id, { select: o.select, ...callOpts(o) });
       }
       return r.data;
     },
+    async aggregate(spec, o) {
+      const query = serialize({ where: o?.where, aggregate: spec, groupBy: o?.groupBy });
+      const r = await request<never[]>({ method: 'GET', path: base, query, ...callOpts(o) });
+      return { rows: Array.isArray(r.data) ? r.data : [], meta: r.meta };
+    },
     async *iterate(q: Query = {}, o?: CallOptions) {
-      // Copy: never mutate the caller's query. Cursor mode is required to follow `next`.
-      let query: Query = q.page !== undefined && q.cursor === undefined ? { ...q } : { ...q, cursor: q.cursor ?? null };
+      if (q.page !== undefined && q.cursor === undefined) {
+        throw new SpApiError({ status: 0, code: 'unencodable_value', message: 'iterate() requires cursor mode; do not pass `page`' });
+      }
+      // Copy: never mutate the caller's query.
+      let query: Query = { ...q, cursor: q.cursor ?? null };
       for (;;) {
         if (o?.signal?.aborted === true) throw o.signal.reason;
         const page = await list(query, o);
         if (page.data.length === 0) return;
         yield* page.data;
         if (page.next === null) return;
+        // A cursor that does not advance would loop forever.
+        if (page.next === (query.cursor === null || query.cursor === undefined ? '0' : String(query.cursor))) return;
         query = { ...query, cursor: page.next };
       }
     },

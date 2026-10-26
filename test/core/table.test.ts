@@ -212,3 +212,36 @@ describe('table.iterate', () => {
     expect(calls).toHaveLength(1);
   });
 });
+
+describe('table hardening', () => {
+  it('iterate stops when next equals the cursor just sent', async () => {
+    const { calls, table } = setup([{ data: rows(2), meta: { next_cursor: 'same' } }]);
+    const out: Row[] = [];
+    for await (const r of table.iterate({ perPage: 2, cursor: 'same' })) out.push(r);
+    expect(out).toHaveLength(2);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('iterate with page (offset mode) throws unencodable_value', async () => {
+    const { calls, table } = setup([{ data: rows(1), meta: {} }]);
+    await expect(table.iterate({ page: 1 }).next()).rejects.toMatchObject({
+      name: 'SpApiError',
+      code: 'unencodable_value',
+      message: expect.stringContaining('iterate() requires cursor mode'),
+    });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('upsert refetch without an id throws instead of requesting undefined', async () => {
+    const { calls, table } = setup([{ data: { payload: {} }, meta: {} }]);
+    await expect(table.upsert({}, { matchOn: ['a'], refetch: true })).rejects.toMatchObject({ code: 'unknown' });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('plain list() sends neither cursor nor page; next is next_cursor on a full page', async () => {
+    const { calls, table } = setup([{ data: rows(25), meta: { next_cursor: 'n' } }]);
+    const p = await table.list();
+    expect(qs(calls[0])).toBe('per_page=25');
+    expect(p.next).toBe('n');
+  });
+});
