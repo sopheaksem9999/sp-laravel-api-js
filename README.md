@@ -224,11 +224,11 @@ const laravel = createApi({
 
 ## Modules
 
-The core is all that is in 0.1. The subpath modules below are planned and are **not in this release**: the import paths do not exist yet, and importing them fails.
+The core is in 0.1. `bulk` is available as a subpath import; the other modules below are planned and are **not in this release**: their import paths do not exist yet, and importing them fails.
 
 | Backend module | Import path | Status |
 |---|---|---|
-| `bulk_operations` | `@sopheak/sp-laravel-api/bulk` | coming in 0.2 |
+| `bulk_operations` | `@sopheak/sp-laravel-api/bulk` | available (see below) |
 | `attachments` | `@sopheak/sp-laravel-api/attachments` | coming in 0.2 |
 | `audit` | `@sopheak/sp-laravel-api/audit` | coming in 0.2 |
 | `permissions` | `@sopheak/sp-laravel-api/permissions` | coming in 0.2 |
@@ -236,7 +236,20 @@ The core is all that is in 0.1. The subpath modules below are planned and are **
 | Broadcasting | `@sopheak/sp-laravel-api/realtime` | coming in 0.2 |
 | `api_docs` | `@sopheak/sp-laravel-api/docs` | coming in 0.2 |
 
-Each will be a function that takes the core client, so bundlers drop whatever you do not import.
+Each is a function that takes a table from the core client, so bundlers drop whatever you do not import, and the main entry never includes module code.
+
+### Bulk
+
+```ts
+import { bulk } from '@sopheak/sp-laravel-api/bulk';
+
+const invoices = bulk(api.table<Invoice>('invoices'));
+const r = await invoices.create(rows); // chunks of 1000, one request each
+if (!('queued' in r)) console.log(r.affected, r.rows);
+await invoices.upsert(rows, { matchOn: ['number'] }); // { count }
+```
+
+`create`, `update`, `delete`, `upsert` and `mixed`, with `chunkSize`, `concurrency`, `async` and `signal` options. Each chunk is its own backend transaction; a failed call throws with `error.completedChunks`. See [src/bulk/README.md](src/bulk/README.md) for the backend contract, limits and async behaviour.
 
 ## Backend compatibility
 

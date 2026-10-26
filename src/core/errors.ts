@@ -36,6 +36,7 @@ interface Init {
   body?: unknown;
   response?: Response | null;
   cause?: unknown;
+  completedChunks?: number;
 }
 
 /** Single error shape thrown for every failed SP API call (HTTP, envelope, plain Laravel, HTML, empty, transport). */
@@ -51,11 +52,17 @@ export class SpApiError extends Error {
   response: Response | null;
   /** Underlying error for transport failures (declared here because the ES2020 lib lacks `Error.cause`). */
   cause?: unknown;
+  /**
+   * Set by the `bulk` module when a chunked call fails part-way: the number of chunks that
+   * succeeded (each chunk is its own backend transaction, so those stay committed).
+   */
+  completedChunks?: number;
 
   /** Creates an error from already-normalised fields; prefer `errorFromResponse` / `transportError`. */
   constructor(init: Init) {
     super(init.message);
     if (init.cause !== undefined) this.cause = init.cause;
+    if (init.completedChunks !== undefined) this.completedChunks = init.completedChunks;
     this.name = 'SpApiError';
     this.status = init.status;
     this.code = init.code;

@@ -102,6 +102,14 @@ describe('errorFromResponse', () => {
   });
 });
 
+describe('completedChunks', () => {
+  it('is unset by default and carried when given', () => {
+    const base = { status: 500, code: 'server' as const, message: 'x' };
+    expect(new SpApiError(base).completedChunks).toBeUndefined();
+    expect(new SpApiError({ ...base, completedChunks: 2 }).completedChunks).toBe(2);
+  });
+});
+
 describe('transportError', () => {
   it('builds a network/timeout error without a response', () => {
     const cause = new Error('down');

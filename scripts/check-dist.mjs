@@ -1,7 +1,8 @@
 // Guard: dist/ must not import Node built-ins (`node:` specifiers), so the
 // package runs in browsers and edge runtimes. dist/cli/ is exempt (Node-only CLI).
 import { readdirSync, readFileSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../dist', import.meta.url));
@@ -29,6 +30,42 @@ try {
 }
 if (bad.length) {
   console.error(`check-dist: node: imports found in dist:\n  ${bad.join('\n  ')}`);
+  process.exit(1);
+}
+
+// The core import graph must hold no module code (bundle-size acceptance: importing only the main entry
+// pulls in no module). Follow every relative import/require from the two main entries.
+const MODULE_MARKERS = ['bulk/create', 'bulk/upsert'];
+const seen = new Set();
+const leaks = [];
+function follow(file) {
+  if (seen.has(file)) return;
+  seen.add(file);
+  const text = readFileSync(file, 'utf8');
+  for (const m of MODULE_MARKERS) if (text.includes(m)) leaks.push(`${relative(root, file)} contains "${m}"`);
+  for (const m of text.matchAll(/(?:from|require\()\s*["'](\.[^"']+)["']/g)) follow(resolve(dirname(file), m[1]));
+  for (const m of text.matchAll(/import\(\s*["'](\.[^"']+)["']\s*\)/g)) follow(resolve(dirname(file), m[1]));
+}
+try {
+  follow(join(root, 'index.js'));
+  follow(join(root, 'index.cjs'));
+} catch (e) {
+  console.error(`check-dist: cannot follow the core import graph (${e.message}).`);
+  process.exit(1);
+}
+if (leaks.length) {
+  console.error(`check-dist: module code reachable from the main entry:\n  ${leaks.join('\n  ')}`);
+  process.exit(1);
+}
+
+// One SpApiError class across entries in CJS: an error thrown by a module must pass `instanceof` from the main entry.
+const require = createRequire(import.meta.url);
+const core = require(join(root, 'index.cjs'));
+const mod = require(join(root, 'bulk.cjs'));
+const api = core.createApi({ baseUrl: 'https://x.test', fetch: async () => new Response('{}', { status: 422 }) });
+const thrown = await mod.bulk(api.table('t')).create([{}]).catch((e) => e);
+if (!(thrown instanceof core.SpApiError)) {
+  console.error('check-dist: bulk.cjs throws an SpApiError that is not instanceof the main entry SpApiError (splitting off?)');
   process.exit(1);
 }
 console.log('check-dist: ok');
