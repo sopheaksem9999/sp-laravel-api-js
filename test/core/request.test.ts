@@ -217,4 +217,41 @@ describe('createRequester', () => {
     expect(g).not.toHaveBeenCalled();
     g.mockRestore();
   });
+
+  it('overrides headers case-insensitively', async () => {
+    const { request, calls } = setup([ok()], { auth: { getHeaders: async () => ({ Authorization: 'a' }) } });
+    await request({
+      method: 'POST',
+      path: 'x',
+      body: { a: 1 },
+      headers: { authorization: 'b', 'content-type': 'text/plain' },
+    });
+    expect(calls[0]?.headers.get('Authorization')).toBe('b');
+    expect(calls[0]?.headers.get('Content-Type')).toBe('text/plain');
+  });
+
+  it('rejects with the reason without fetching when the signal is already aborted', async () => {
+    const { request, fake } = setup([ok()]);
+    const ac = new AbortController();
+    const reason = new DOMException('stop', 'AbortError');
+    ac.abort(reason);
+    await expect(request({ method: 'GET', path: 'x', signal: ac.signal })).rejects.toBe(reason);
+    expect(fake).not.toHaveBeenCalled();
+  });
+
+  it('does not retry when the caller aborts during handleUnauthorized', async () => {
+    const ac = new AbortController();
+    const reason = new DOMException('stop', 'AbortError');
+    const { request, fake } = setup([() => json({}, 401)], {
+      auth: {
+        getHeaders: async () => ({}),
+        handleUnauthorized: async () => {
+          ac.abort(reason);
+          return true;
+        },
+      },
+    });
+    await expect(request({ method: 'GET', path: 'x', signal: ac.signal })).rejects.toBe(reason);
+    expect(fake).toHaveBeenCalledTimes(1);
+  });
 });

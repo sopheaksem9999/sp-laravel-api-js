@@ -54,6 +54,11 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+/** Re-evaluated at each call site so TypeScript does not narrow `aborted` across awaits. */
+function isAborted(s: AbortSignal | undefined): boolean {
+  return s?.aborted === true;
+}
+
 function isRawBody(b: unknown): boolean {
   return (
     typeof b === 'string' ||
@@ -98,15 +103,18 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
     const timeoutMs = o.timeoutMs ?? cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
     for (let attempt = 0; ; attempt++) {
-      const headers: Record<string, string> = { Accept: 'application/json', 'X-Request-ID': requestId };
-      if (cfg.auth !== undefined) Object.assign(headers, await cfg.auth.getHeaders());
+      if (isAborted(o.signal)) throw o.signal?.reason;
+      const headers = new Headers({ Accept: 'application/json', 'X-Request-ID': requestId });
+      if (cfg.auth !== undefined) {
+        for (const [k, v] of Object.entries(await cfg.auth.getHeaders())) headers.set(k, v);
+      }
       const tenantValue = cfg.tenant?.value();
       if (cfg.tenant !== undefined && tenantValue !== null && tenantValue !== undefined) {
-        headers[cfg.tenant.header] = String(tenantValue);
+        headers.set(cfg.tenant.header, String(tenantValue));
       }
-      if (o.debug === true || cfg.debug === true) headers['X-Debug'] = '1';
-      if (jsonBody) headers['Content-Type'] = 'application/json';
-      Object.assign(headers, o.headers);
+      if (o.debug === true || cfg.debug === true) headers.set('X-Debug', '1');
+      if (jsonBody) headers.set('Content-Type', 'application/json');
+      for (const [k, v] of Object.entries(o.headers ?? {})) headers.set(k, v);
 
       const controller = new AbortController();
       let timedOut = false;
@@ -115,7 +123,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
         controller.abort();
       }, timeoutMs);
       const onAbort = (): void => controller.abort(o.signal?.reason);
-      if (o.signal?.aborted === true) onAbort();
+      if (isAborted(o.signal)) onAbort();
       else o.signal?.addEventListener('abort', onAbort, { once: true });
 
       let res: Response;
@@ -132,7 +140,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
           });
         }
       } catch (e) {
-        if (o.signal?.aborted === true) throw e;
+        if (isAborted(o.signal)) throw e;
         throw transportError(timedOut ? 'timeout' : 'network', e, o.module);
       } finally {
         clearTimeout(timer);
@@ -141,7 +149,10 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
 
       if (failure !== null) {
         if (failure.status === 401 && attempt === 0 && cfg.auth?.handleUnauthorized !== undefined) {
-          if (await cfg.auth.handleUnauthorized()) continue;
+          if (await cfg.auth.handleUnauthorized()) {
+            if (isAborted(o.signal)) throw o.signal?.reason;
+            continue;
+          }
         }
         throw failure;
       }
