@@ -5,9 +5,15 @@ export { SpApiError, errorFromResponse, isSpApiError, transportError } from './c
 export type { ErrorContext, SpErrorCode } from './core/errors';
 export { serializeQuery } from './core/serialize';
 export type {
+  AggregateRow,
   AggregateSpec,
+  Condition,
+  Modifier,
   Operator,
+  OperandValue,
+  OperatorMap,
   Query,
+  Scalar,
   SelectItem,
   SerializeOptions,
   Where,
