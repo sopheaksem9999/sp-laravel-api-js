@@ -3,12 +3,12 @@ import { buildPage } from './page';
 import type { Page } from './page';
 import type { AggregateRow, AggregateSpec, Query, SelectItem, Where } from './query-types';
 import type { Api } from './create-api';
-
-/** What `table.restore(id)` resolves: the backend's own count of restored rows (`data` of `POST {table}/{id}/restore`). */
-export type RestoreResult = { restored: number };
 import type { createRequester } from './request';
 
 export type { Page } from './page';
+
+/** What `table.restore(id)` resolves: the backend's own count of restored rows (`data` of `POST {table}/{id}/restore`). */
+export type RestoreResult = { restored: number };
 
 /** Per-call transport options. */
 export interface CallOptions {

@@ -109,8 +109,8 @@ describe('parseWebhook', () => {
     });
   });
 
-  it('reads a Node-style object with mixed-case keys and array values', () => {
-    const headers = { 'content-type': 'application/json', 'X-WEBHOOK-event': ['invoices.updated', 'ignored.deleted'], other: undefined };
+  it('reads a Node-style object with mixed-case keys and a one-entry array value', () => {
+    const headers = { 'content-type': 'application/json', 'X-WEBHOOK-event': ['invoices.updated'], other: undefined };
     const r = parseWebhook({ headers, rawBody: body });
     expect(r.table).toBe('invoices');
     expect(r.action).toBe('updated');
@@ -165,5 +165,23 @@ describe('parseWebhook', () => {
 
   it('a body that is not a string or Uint8Array -> the typed error', () => {
     expectTyped(() => parseWebhook({ headers: { 'x-webhook-event': 't.created' }, rawBody: { a: 'SECRET' } as never }), 'SECRET');
+  });
+
+  it('null or undefined headers -> the typed error, not a TypeError', () => {
+    expectTyped(() => parseWebhook({ headers: null as never, rawBody: '{"a":"SECRET"}' }), 'SECRET');
+    expectTyped(() => parseWebhook({ headers: undefined as never, rawBody: '{"a":"SECRET"}' }), 'SECRET');
+    expectTyped(() => parseWebhook({ headers: 'x' as never, rawBody: '{"a":"SECRET"}' }), 'SECRET');
+  });
+
+  it('a repeated X-Webhook-Event header is rejected, never mis-split', () => {
+    const h = new Headers();
+    h.append('X-Webhook-Event', 'invoices.updated');
+    h.append('X-Webhook-Event', 'orders.deleted');
+    expect(h.get('X-Webhook-Event')).toBe('invoices.updated, orders.deleted');
+    expectTyped(() => parseWebhook({ headers: h, rawBody: '{"a":"SECRET"}' }), 'SECRET');
+    // Node joins repeated unknown headers with ', ' too; an array with several entries is just as ambiguous.
+    expectTyped(() => parseWebhook({ headers: { 'x-webhook-event': 'invoices.updated, orders.deleted' }, rawBody: '{}' }), 'SECRET');
+    expectTyped(() => parseWebhook({ headers: { 'x-webhook-event': ['invoices.updated', 'orders.deleted'] }, rawBody: '{}' }), 'SECRET');
+    expectTyped(() => parseWebhook({ headers: { 'x-webhook-event': [] }, rawBody: '{}' }), 'SECRET');
   });
 });

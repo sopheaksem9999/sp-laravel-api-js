@@ -20,7 +20,7 @@ export interface Role {
   is_default?: boolean;
   created_at?: string | null;
   updated_at?: string | null;
-  /** Attached permissions, only when requested through `include`. */
+  /** Attached permissions, only when embedded through `select` (`select: ['*', { permissions: ['id', 'name'] }]`). */
   permissions?: Permission[];
   [k: string]: unknown;
 }

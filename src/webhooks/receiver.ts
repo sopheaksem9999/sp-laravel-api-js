@@ -73,28 +73,32 @@ function invalid(message: string): SpApiError {
 }
 
 function readHeader(headers: WebhookHeaders, name: string): string | undefined {
+  if (headers === null || typeof headers !== 'object') throw invalid('Webhook request has no headers');
   if (typeof (headers as Headers).get === 'function') return (headers as Headers).get(name) ?? undefined;
   for (const [k, v] of Object.entries(headers as Record<string, string | string[] | undefined>)) {
     if (k.toLowerCase() !== name) continue;
-    const first = Array.isArray(v) ? v[0] : v;
-    return typeof first === 'string' ? first : undefined;
+    // A repeated header is ambiguous: only a one-entry array is accepted.
+    const only = Array.isArray(v) ? (v.length === 1 ? v[0] : undefined) : v;
+    return typeof only === 'string' ? only : undefined;
   }
   return undefined;
 }
 
 /**
  * Reads a delivery: `X-Webhook-Event: {table}.{action}` (split on the LAST dot) and the JSON body. Header names are
- * case-insensitive; `headers` may be a Fetch `Headers` or a Node-style object (array values use the first entry).
+ * case-insensitive; `headers` may be a Fetch `Headers` or a Node-style object. A repeated event header (an array with
+ * more than one entry, or values joined with `, `) is rejected rather than guessed at.
  * This does NOT verify the signature: call `verifyWebhook` first, with the same raw body.
  *
- * A missing or malformed event header, a malformed JSON body, or a body that is not a string or `Uint8Array` throws
+ * Missing headers (`null`/`undefined`), a missing, repeated or malformed event header, a malformed JSON body, or a body that is not a string or `Uint8Array` throws
  * `SpApiError` with `code: 'unknown'`, `status: 400`, `module: 'webhooks'` and a fixed message; the body text is never
  * included. No network call is made.
  */
 export function parseWebhook(o: { headers: WebhookHeaders; rawBody: string | Uint8Array }): ParsedWebhook {
   const event = readHeader(o.headers, 'x-webhook-event');
   const dot = event === undefined ? -1 : event.lastIndexOf('.');
-  if (event === undefined || dot <= 0 || dot === event.length - 1) {
+  // A comma means the header was repeated and joined (`a.created, b.updated`); splitting it would mis-read the table.
+  if (event === undefined || dot <= 0 || dot === event.length - 1 || event.includes(',')) {
     throw invalid('Webhook request has a missing or malformed X-Webhook-Event header');
   }
   let text: string;

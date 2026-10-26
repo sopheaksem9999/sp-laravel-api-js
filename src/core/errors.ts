@@ -142,7 +142,8 @@ export async function errorFromResponse(res: Response, ctx: ErrorContext = {}): 
   let retryAfter: number | null = null;
   if (res.status === 429) {
     const header = res.headers.get('Retry-After');
-    const secs = header === null ? NaN : Number(header);
+    // Number('') is 0: an empty or blank header must read as "unknown", not "retry now".
+    const secs = header === null || header.trim() === '' ? NaN : Number(header);
     if (Number.isFinite(secs) && secs >= 0) retryAfter = secs;
   }
 

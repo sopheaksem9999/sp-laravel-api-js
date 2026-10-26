@@ -1,5 +1,4 @@
-import { errorFromResponse, transportError } from './errors';
-import type { SpApiError } from './errors';
+import { SpApiError, errorFromResponse, transportError } from './errors';
 import type { Query } from './query-types';
 import { serializeQuery } from './serialize';
 
@@ -23,7 +22,12 @@ export interface ApiConfig {
   tenant?: { header: string; value: () => string | number | null | undefined };
   defaults?: { perPage?: number; total?: boolean };
   fetch?: typeof fetch;
+  /**
+   * Per-request timeout in ms (default 60000). `0`, a negative number, `Infinity`, `NaN` or anything above
+   * 2^31-1 (the largest timer delay) means no timeout.
+   */
   timeoutMs?: number;
+  /** Diagnostics hook. Only the `realtime` module emits events (`realtime_handler_error`); the core never calls it. */
   onEvent?: (e: { type: string; [k: string]: unknown }) => void;
   quoting?: boolean;
   driver?: 'pgsql' | 'mysql';
@@ -60,6 +64,37 @@ export interface ApiResult<T> {
 }
 
 const DEFAULT_TIMEOUT_MS = 60000;
+/** Largest delay `setTimeout` honours; larger values overflow and fire almost at once. */
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/** `true` when `ms` is a usable timer delay; anything else means "no timeout". */
+const hasTimeout = (ms: number): boolean => ms > 0 && ms <= MAX_TIMER_MS;
+
+function unencodableBody(what: string): SpApiError {
+  return new SpApiError({ status: 0, code: 'unencodable_value', message: `Request body cannot be sent: ${what}` });
+}
+
+/**
+ * JSON-encodes a non-raw body, throwing `unencodable_value` for values `JSON.stringify` would drop or turn into
+ * `{}` (streams, functions, symbols, bigints, Map/Set, promises) instead of sending them silently.
+ */
+function encodeJsonBody(b: unknown): string {
+  const t = typeof b;
+  if (t === 'function' || t === 'symbol' || t === 'bigint') throw unencodableBody(`a ${t} is not JSON`);
+  if (typeof ReadableStream !== 'undefined' && b instanceof ReadableStream) {
+    throw unencodableBody('a ReadableStream is not supported by api.request; buffer it into a Blob or Uint8Array');
+  }
+  if (b instanceof Map || b instanceof Set) throw unencodableBody(`a ${b instanceof Map ? 'Map' : 'Set'} would be sent as {}`);
+  if (isRecord(b) && typeof b.then === 'function') throw unencodableBody('a Promise would be sent as {}; await it first');
+  let out: string | undefined;
+  try {
+    out = JSON.stringify(b);
+  } catch (e) {
+    throw unencodableBody(e instanceof Error ? e.message : 'JSON.stringify failed');
+  }
+  if (out === undefined) throw unencodableBody('JSON.stringify returned nothing');
+  return out;
+}
 
 function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -105,7 +140,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
     if (o.body !== undefined) {
       if (isRawBody(o.body)) body = o.body as BodyInit;
       else {
-        body = JSON.stringify(o.body);
+        body = encodeJsonBody(o.body);
         jsonBody = true;
       }
     }
@@ -129,10 +164,12 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
 
       const controller = new AbortController();
       let timedOut = false;
-      const timer = setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, timeoutMs);
+      const timer = hasTimeout(timeoutMs)
+        ? setTimeout(() => {
+            timedOut = true;
+            controller.abort();
+          }, timeoutMs)
+        : undefined;
       const onAbort = (): void => controller.abort(o.signal?.reason);
       if (isAborted(o.signal)) onAbort();
       else o.signal?.addEventListener('abort', onAbort, { once: true });

@@ -202,6 +202,48 @@ describe('createRequester', () => {
     await expect(r({ method: 'GET', path: 'x', timeoutMs: 20 })).rejects.toMatchObject({ code: 'timeout', status: 0 });
   });
 
+  it.each([0, -1, Number.POSITIVE_INFINITY, 2 ** 31, Number.NaN])('timeoutMs %s means no timeout (never fires at once)', async (t) => {
+    const fake = vi.fn(
+      (_u: string, init?: RequestInit) =>
+        new Promise<Response>((res, rej) => {
+          const id = setTimeout(() => res(json({ success: true, data: 1 })), 30);
+          init?.signal?.addEventListener('abort', () => {
+            clearTimeout(id);
+            rej(new DOMException('aborted', 'AbortError'));
+          });
+        }),
+    );
+    const perCall = createRequester({ baseUrl: 'https://api.test', fetch: fake as unknown as typeof fetch });
+    await expect(perCall({ method: 'GET', path: 'x', timeoutMs: t })).resolves.toMatchObject({ data: 1 });
+    const fromConfig = createRequester({ baseUrl: 'https://api.test', fetch: fake as unknown as typeof fetch, timeoutMs: t });
+    await expect(fromConfig({ method: 'GET', path: 'x' })).resolves.toMatchObject({ data: 1 });
+  });
+
+  it.each([
+    ['a ReadableStream', () => new ReadableStream()],
+    ['a function', () => () => 1],
+    ['a bigint', () => BigInt(1)],
+    ['a symbol', () => Symbol('s')],
+    ['an object holding a bigint', () => ({ n: BigInt(1) })],
+    ['a Map', () => new Map([['a', 1]])],
+    ['a Set', () => new Set([1])],
+    ['a Promise', () => Promise.resolve(1)],
+  ])('a body that is %s throws unencodable_value and sends nothing', async (_label, make) => {
+    const { request, fake } = setup([ok()]);
+    const err = await request({ method: 'POST', path: 'x', body: make() }).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SpApiError);
+    expect(err).toMatchObject({ code: 'unencodable_value', status: 0 });
+    expect(fake).not.toHaveBeenCalled();
+  });
+
+  it('still sends plain JSON, raw bodies and objects with toJSON', async () => {
+    const { request, calls } = setup([ok(), ok()]);
+    await request({ method: 'POST', path: 'x', body: { at: new Date(0), n: [1, null] } });
+    expect(calls[0]?.init.body).toBe('{"at":"1970-01-01T00:00:00.000Z","n":[1,null]}');
+    await request({ method: 'POST', path: 'x', body: 'raw' });
+    expect(calls[1]?.init.body).toBe('raw');
+  });
+
   it('maps fetch rejection to network, status 0', async () => {
     const { request } = setup([() => Promise.reject(new TypeError('boom'))]);
     const err = await request({ method: 'GET', path: 'x' }).catch((e: unknown) => e);

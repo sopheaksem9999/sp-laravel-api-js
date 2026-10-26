@@ -1,3 +1,4 @@
+import { SpApiError } from './errors';
 import type { CallOptions } from './table';
 import type { createRequester } from './request';
 
@@ -7,7 +8,19 @@ export type FnOptions = {
   body?: unknown;
 } & CallOptions;
 
-const seg = (s: string | number): string => encodeURIComponent(String(s));
+/**
+ * Encodes one path segment. `''`, `'.'` and `'..'` throw `unencodable_value`: encoding leaves them unchanged, so
+ * the URL would be normalised to a different route (`a/../b` is `b`) or hit a doubled slash.
+ */
+export function pathSegment(s: string | number): string {
+  const v = String(s);
+  if (v === '' || v === '.' || v === '..') {
+    throw new SpApiError({ status: 0, code: 'unencodable_value', message: `Path segment ${JSON.stringify(v)} cannot be sent` });
+  }
+  return encodeURIComponent(v);
+}
+
+const seg = pathSegment;
 
 /** Splits a slash-separated path and encodes each segment. */
 const encodePath = (p: string): string => p.split('/').map(seg).join('/');
@@ -22,7 +35,7 @@ async function send<T>(request: Request, path: string, o: FnOptions | undefined)
 }
 
 /** Calls `{table}/{id?}/{rpcPrefix}/{name}`; POST when a body is given, else GET. */
-export function callFn<T>(request: Request, rpcPrefix: string, table: string, name: string, o?: FnOptions): Promise<T> {
+export async function callFn<T>(request: Request, rpcPrefix: string, table: string, name: string, o?: FnOptions): Promise<T> {
   const parts = [seg(table)];
   if (o?.id !== undefined) parts.push(seg(o.id));
   if (rpcPrefix !== '') parts.push(seg(rpcPrefix));
@@ -31,7 +44,7 @@ export function callFn<T>(request: Request, rpcPrefix: string, table: string, na
 }
 
 /** Calls `{rpcPrefix}/{path}`; each path segment is encoded. */
-export function callRpc<T>(request: Request, rpcPrefix: string, path: string, o?: FnOptions): Promise<T> {
+export async function callRpc<T>(request: Request, rpcPrefix: string, path: string, o?: FnOptions): Promise<T> {
   const p = encodePath(path.replace(/^\/+/, ''));
   return send<T>(request, rpcPrefix === '' ? p : `${seg(rpcPrefix)}/${p}`, o);
 }

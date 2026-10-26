@@ -1,4 +1,5 @@
 import type { Api } from '../core/create-api';
+import { pathSegment } from '../core/fn';
 import type { Page, Table } from '../core/table';
 import type { Query } from '../core/query-types';
 
@@ -26,7 +27,7 @@ export interface AuditLog {
   request_id?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
-  /** The related user, only when requested through `include`. */
+  /** The related user, only when embedded through `select` (`select: ['*', { user: ['id', 'name'] }]`). */
   user?: unknown;
   [k: string]: unknown;
 }
@@ -124,8 +125,9 @@ export function audit(api: Api): Audit {
     return r.data;
   }
 
+  // pathSegment: '', '.' and '..' throw unencodable_value (they would change the route).
   const entityPath = (name: string, type: string, id: string | number, field: string): string =>
-    `${name}/${seg(type)}/${seg(id)}/${seg(field)}`;
+    `${name}/${pathSegment(type)}/${pathSegment(id)}/${pathSegment(field)}`;
 
   return {
     list: (q, o) => table.list(q, o),
@@ -142,12 +144,12 @@ export function audit(api: Api): Audit {
       put('event', o?.event);
       return call<AuditStats>('stats', query, o?.signal);
     },
-    fieldTimeline(entityType, entityId, field, o) {
+    async fieldTimeline(entityType, entityId, field, o) {
       const query = new URLSearchParams();
       if (o?.limit !== undefined) query.set('limit', String(o.limit));
       return call<FieldTimelineEntry[]>(entityPath('field-timeline', entityType, entityId, field), query, o?.signal);
     },
-    fieldStats: (entityType, entityId, field, o) =>
+    fieldStats: async (entityType, entityId, field, o) =>
       call<FieldStats>(entityPath('field-stats', entityType, entityId, field), undefined, o?.signal),
   };
 }

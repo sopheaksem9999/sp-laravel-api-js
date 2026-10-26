@@ -27,6 +27,14 @@ describe('errorFromResponse', () => {
     }
   });
 
+  it('429 with an empty or blank Retry-After has retryAfter null, not 0', async () => {
+    for (const v of ['', '   ']) {
+      const err = await errorFromResponse(json(429, { message: 'slow' }, { 'Retry-After': v }));
+      expect(err.retryAfter).toBeNull();
+    }
+    expect((await errorFromResponse(json(429, { message: 'slow' }, { 'Retry-After': '0' }))).retryAfter).toBe(0);
+  });
+
   it('429 reads Retry-After', async () => {
     const err = await errorFromResponse(json(429, { message: 'slow' }, { 'Retry-After': '7' }));
     expect(err.code).toBe('rate_limited');

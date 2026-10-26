@@ -38,7 +38,7 @@ const catchErr = async (p: Promise<unknown>): Promise<SpApiError> => {
 describe('audit.list', () => {
   it('lists sp_audit_logs through the table core and exposes no write methods', async () => {
     const { calls, audit: a } = setup(() => json([{ id: 1, event: 'created' }], {}));
-    const page = await a.list({ where: { event: 'created' }, include: ['user'] } as never);
+    const page = await a.list({ where: { event: 'created' }, select: ['*', { user: ['id', 'name'] }] });
     expect(page.data).toEqual([{ id: 1, event: 'created' }]);
     expect(calls[0]?.method).toBe('GET');
     expect(calls[0]?.url.pathname).toBe('/api/sp_audit_logs');
@@ -164,5 +164,16 @@ describe('audit.fieldTimeline / fieldStats', () => {
     const e = await catchErr(setup(() => fail(403)).audit.fieldStats('invoices', 1, 'status'));
     expect(e.module).toBe('audit');
     expect(e.code).toBe('forbidden');
+  });
+});
+
+describe('audit path segments', () => {
+  it('rejects ., .. and empty segments before any request', async () => {
+    const { calls, audit: a } = setup();
+    for (const [t, id, f] of [['..', 1, 'x'], ['invoices', '..', 'x'], ['invoices', 1, '.'], ['', 1, 'x'], ['invoices', '', 'x'], ['invoices', 1, '']] as const) {
+      expect((await catchErr(a.fieldTimeline(t, id, f))).code).toBe('unencodable_value');
+      expect((await catchErr(a.fieldStats(t, id, f))).code).toBe('unencodable_value');
+    }
+    expect(calls).toHaveLength(0);
   });
 });

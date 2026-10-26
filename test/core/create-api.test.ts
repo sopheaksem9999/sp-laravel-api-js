@@ -167,3 +167,32 @@ describe('createApi<Tables>', () => {
     expectTypeOf(typed.table<{ b: string }>('other').get).returns.resolves.toEqualTypeOf<{ b: string }>();
   });
 });
+
+describe('fn / rpc reject dot and empty path segments', () => {
+  const bad = async (p: Promise<unknown>): Promise<void> => {
+    const e = await p.then(
+      () => null,
+      (x: unknown) => x,
+    );
+    expect(e).toMatchObject({ name: 'SpApiError', code: 'unencodable_value', status: 0 });
+  };
+
+  it('rpc', async () => {
+    const { seen, api } = mk();
+    for (const p of ['', '/', '.', '..', 'a/../b', 'a/./b', 'a//b', 'a/', '../admin']) await bad(api.rpc(p));
+    expect(seen).toHaveLength(0);
+    await api.rpc('/auth/whoami');
+    expect(seen).toHaveLength(1);
+  });
+
+  it('fn', async () => {
+    const { seen, api } = mk();
+    await bad(api.fn('..', 'x'));
+    await bad(api.fn('invoices', '.'));
+    await bad(api.fn('invoices', ''));
+    await bad(api.fn('', 'x'));
+    await bad(api.fn('invoices', 'x', { id: '..' }));
+    await bad(api.fn('invoices', 'x', { id: '' }));
+    expect(seen).toHaveLength(0);
+  });
+});
