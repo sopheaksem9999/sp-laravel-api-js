@@ -9,6 +9,7 @@ export default defineConfig({
     audit: 'src/audit/index.ts',
     permissions: 'src/permissions/index.ts',
     webhooks: 'src/webhooks/index.ts',
+    realtime: 'src/realtime/index.ts',
   },
   // Share core code (SpApiError) between entries in CJS too, so `instanceof` works across subpaths.
   splitting: true,

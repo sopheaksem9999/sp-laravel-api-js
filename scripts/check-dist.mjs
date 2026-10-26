@@ -53,6 +53,7 @@ const MODULE_MARKERS_BY_MODULE = {
   audit: ['sp_audit_logs', 'field-timeline', 'field-stats'],
   permissions: ['sp_roles', 'sp_permissions', '_delete'],
   webhooks: ['sp_webhook_endpoints', 'sp_webhook_subscriptions', 'sp_webhook_deliveries', 'x-webhook-event'],
+  realtime: ['tenant.global', 'realtime_handler_error'],
 };
 const MODULE_MARKERS = Object.values(MODULE_MARKERS_BY_MODULE).flat();
 const vacuous = [];
@@ -132,4 +133,5 @@ if (!(hookThrown instanceof core.SpApiError)) {
   console.error('check-dist: webhooks.cjs throws an SpApiError that is not instanceof the main entry SpApiError (splitting off?)');
   process.exit(1);
 }
+// realtime throws no SpApiError (no HTTP, never throws), so it has no CJS instanceof check.
 console.log('check-dist: ok');

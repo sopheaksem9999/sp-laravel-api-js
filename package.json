@@ -28,6 +28,9 @@
       ],
       "webhooks": [
         "./dist/webhooks.d.ts"
+      ],
+      "realtime": [
+        "./dist/realtime.d.ts"
       ]
     }
   },
@@ -90,6 +93,16 @@
       "require": {
         "types": "./dist/webhooks.d.cts",
         "default": "./dist/webhooks.cjs"
+      }
+    },
+    "./realtime": {
+      "import": {
+        "types": "./dist/realtime.d.ts",
+        "default": "./dist/realtime.js"
+      },
+      "require": {
+        "types": "./dist/realtime.d.cts",
+        "default": "./dist/realtime.cjs"
       }
     }
   },
