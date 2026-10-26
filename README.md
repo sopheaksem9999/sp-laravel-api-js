@@ -224,12 +224,12 @@ const laravel = createApi({
 
 ## Modules
 
-The core is in 0.1. `bulk` is available as a subpath import; the other modules below are planned and are **not in this release**: their import paths do not exist yet, and importing them fails.
+The core is in 0.1. `bulk` and `attachments` are available as subpath imports; the other modules below are planned and are **not in this release**: their import paths do not exist yet, and importing them fails.
 
 | Backend module | Import path | Status |
 |---|---|---|
 | `bulk_operations` | `@sopheak/sp-laravel-api/bulk` | available (see below) |
-| `attachments` | `@sopheak/sp-laravel-api/attachments` | coming in 0.2 |
+| `attachments` | `@sopheak/sp-laravel-api/attachments` | available (see below) |
 | `audit` | `@sopheak/sp-laravel-api/audit` | coming in 0.2 |
 | `permissions` | `@sopheak/sp-laravel-api/permissions` | coming in 0.2 |
 | `webhooks` | `@sopheak/sp-laravel-api/webhooks` | coming in 0.2 |
@@ -250,6 +250,19 @@ await invoices.upsert(rows, { matchOn: ['number'] }); // { count }
 ```
 
 `create`, `update`, `delete`, `upsert` and `mixed`, with `chunkSize`, `concurrency`, `async` and `signal` options. Each chunk is its own backend transaction; a failed call throws with `error.completedChunks`. See [src/bulk/README.md](src/bulk/README.md) for the backend contract, limits and async behaviour.
+
+### Attachments
+
+```ts
+import { attachments } from '@sopheak/sp-laravel-api/attachments';
+
+const att = attachments(api);
+const file = await att.upload(blob, { recordType: 'products', recordId: 7, name: 'photo.png' });
+await att.forRecord('products', 7).link([file.id]);
+const src = att.viewUrl(file.id, { w: 200, fit: 'crop' }); // a string, no request
+```
+
+`upload`, `cloneTemp`, `viewUrl`, `downloadUrl`, `forRecord(table, id)` (`list`, `link`, `unlink`) and `folders` (`list`, `create`, `update`, `remove`). Direct and multipart upload arrive in a later release. Protected files need the auth header, so fetch them as a blob for `<img>`, or use the signed `preview_url` when the host enables previews. See [src/attachments/README.md](src/attachments/README.md) for routes, field names and error handling.
 
 ## Backend compatibility
 

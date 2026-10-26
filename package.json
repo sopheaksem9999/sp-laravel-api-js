@@ -16,6 +16,9 @@
     "*": {
       "bulk": [
         "./dist/bulk.d.ts"
+      ],
+      "attachments": [
+        "./dist/attachments.d.ts"
       ]
     }
   },
@@ -38,6 +41,16 @@
       "require": {
         "types": "./dist/bulk.d.cts",
         "default": "./dist/bulk.cjs"
+      }
+    },
+    "./attachments": {
+      "import": {
+        "types": "./dist/attachments.d.ts",
+        "default": "./dist/attachments.js"
+      },
+      "require": {
+        "types": "./dist/attachments.d.cts",
+        "default": "./dist/attachments.cjs"
       }
     }
   },

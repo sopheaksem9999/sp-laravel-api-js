@@ -35,7 +35,7 @@ if (bad.length) {
 
 // The core import graph must hold no module code (bundle-size acceptance: importing only the main entry
 // pulls in no module). Follow every relative import/require from the two main entries.
-const MODULE_MARKERS = ['bulk/create', 'bulk/upsert'];
+const MODULE_MARKERS = ['bulk/create', 'bulk/upsert', 'rpc/upload', 'clone-temp', 'attachment_ids'];
 const seen = new Set();
 const leaks = [];
 function follow(file) {
@@ -66,6 +66,13 @@ const api = core.createApi({ baseUrl: 'https://x.test', fetch: async () => new R
 const thrown = await mod.bulk(api.table('t')).create([{}]).catch((e) => e);
 if (!(thrown instanceof core.SpApiError)) {
   console.error('check-dist: bulk.cjs throws an SpApiError that is not instanceof the main entry SpApiError (splitting off?)');
+  process.exit(1);
+}
+const att = require(join(root, 'attachments.cjs'));
+const attApi = core.createApi({ baseUrl: 'https://x.test', fetch: async () => new Response('{}', { status: 422 }) });
+const attThrown = await att.attachments(attApi).cloneTemp(1).catch((e) => e);
+if (!(attThrown instanceof core.SpApiError)) {
+  console.error('check-dist: attachments.cjs throws an SpApiError that is not instanceof the main entry SpApiError (splitting off?)');
   process.exit(1);
 }
 console.log('check-dist: ok');
