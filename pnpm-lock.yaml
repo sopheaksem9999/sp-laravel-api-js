@@ -181,9 +181,15 @@ importers:
       eslint:
         specifier: 10.12.0
         version: 10.12.0(supports-color@7.2.0)
+      laravel-echo:
+        specifier: 1.17.1
+        version: 1.17.1
       publint:
         specifier: 0.3.25
         version: 0.3.25
+      pusher-js:
+        specifier: 8.4.0-rc2
+        version: 8.4.0-rc2
       tsup:
         specifier: 8.5.1
         version: 8.5.1(postcss@8.5.31)(supports-color@7.2.0)(typescript@5.9.3)(yaml@2.9.1)
@@ -1236,6 +1242,10 @@ packages:
   keyv@5.6.0:
     resolution: {integrity: sha512-CYDD3SOtsHtyXeEORYRx2qBtpDJFjRTGXUtmNEMGyzYOKj1TE3tycdlho7kA1Ufx9OYWZzg52QFBGALTirzDSw==}
 
+  laravel-echo@1.17.1:
+    resolution: {integrity: sha512-ORWc4vDfnBj/Oe5ThZ5kYyGItRjLDqAQUyhD/7UhehUOqc+s5x9HEBjtMVludNMP6VuXw6t7Uxt8bp63kaTofg==}
+    engines: {node: '>=10'}
+
   launch-editor@2.14.2:
     resolution: {integrity: sha512-NHJEb30MGBCkmZXLZwz25t37QR4aY03ZzPYUJXOJaOa92uWwExI9SBQUuIznBYc1xkD7cJNGX7oc3Nl3sq2kQQ==}
 
@@ -1474,6 +1484,9 @@ packages:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
 
+  pusher-js@8.4.0-rc2:
+    resolution: {integrity: sha512-d87GjOEEl9QgO5BWmViSqW0LOzPvybvX6WA9zLUstNdB57jVJuR27zHkRnrav2a3+zAMlHbP2Og8wug+rG8T+g==}
+
   qified@0.10.1:
     resolution: {integrity: sha512-+Owyggi9IxT1ePKGafcI87ubSmxol6smwJ+RAHDQlx9+9cPwFWDiKFFCPuWhr9ignlGpZ9vDQLw67N4dcTVFEA==}
     engines: {node: '>=20'}
@@ -1613,6 +1626,9 @@ packages:
         optional: true
       typescript:
         optional: true
+
+  tweetnacl@1.0.3:
+    resolution: {integrity: sha512-6rt+RN7aOi1nGMyC4Xa5DdYiukl2UWCbcJft7YhxReBGQD7OAM8Pbxw6YMo4r2diNEA8FEmu32YOn9rhaiE5yw==}
 
   type-check@0.4.0:
     resolution: {integrity: sha512-XleUoc9uwGXqjWwXaUTZAmzMcFZ5858QA2vvx1Ur5xIcixXIP+8LnFDgRplU30us6teqdlskFfu+ae4K79Ooew==}
@@ -2689,6 +2705,8 @@ snapshots:
     dependencies:
       '@keyv/serialize': 1.1.1
 
+  laravel-echo@1.17.1: {}
+
   launch-editor@2.14.2:
     dependencies:
       picocolors: 1.1.1
@@ -2886,6 +2904,10 @@ snapshots:
 
   punycode@2.3.1: {}
 
+  pusher-js@8.4.0-rc2:
+    dependencies:
+      tweetnacl: 1.0.3
+
   qified@0.10.1:
     dependencies:
       hookified: 2.2.0
@@ -3058,6 +3080,8 @@ snapshots:
       - supports-color
       - tsx
       - yaml
+
+  tweetnacl@1.0.3: {}
 
   type-check@0.4.0:
     dependencies:
