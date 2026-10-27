@@ -3,7 +3,7 @@ import readme from '../../README.md?raw';
 import self from './readme-snippets.test.ts?raw';
 import { createApi } from '../../src/index';
 import type { Api, Query } from '../../src/index';
-import type { EchoLike } from '../../src/realtime';
+import type { EchoChannelLike, EchoLike } from '../../src/realtime';
 import { subscribeTenant } from '../../src/realtime';
 
 // The README snippets below are copied verbatim (imports aside) between the region markers.
@@ -155,9 +155,11 @@ function useCreateInvoice() {
 // #endregion
 
 // #region snippet:realtime
+// import { useQueryClient } from '@tanstack/react-query';
 // import { subscribeTenant, type EchoLike } from '@sokpheak/sp-laravel-api/realtime';
 
 function setupRealtime(echo: EchoLike) {
+  const queryClient = useQueryClient();
   return subscribeTenant(echo, api, {
     tenantId: 5,
     tables: ['invoices'],
@@ -180,6 +182,18 @@ describe('README TanStack example', () => {
     expect((await m.mutationFn({ total: 120 })).id).toBe(99);
     await m.onSuccess();
     expect(invalidated).toEqual([['sp-api', 'invoices']]);
+
+    const channel: EchoChannelLike = {
+      listen: () => channel,
+      stopListening: () => channel,
+    };
+    const fakeEcho: EchoLike = {
+      private: () => channel,
+      leave: () => {},
+    };
+    const unsub = setupRealtime(fakeEcho);
+    expect(typeof unsub).toBe('function');
+    unsub();
   });
 });
 

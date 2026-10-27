@@ -15,9 +15,10 @@ describe('realtime contract with real Reverb server', () => {
     (globalThis as unknown as { Pusher: typeof Pusher }).Pusher = Pusher;
 
     const url = new URL(reverbUrl!);
+    const auth = { getHeaders: async () => ({ Authorization: `Bearer ${token}` }) };
     const api = createApi({
       baseUrl: contractUrl,
-      auth: { getHeaders: async () => ({ Authorization: `Bearer ${token}` }) },
+      auth,
     });
 
     const echo = new Echo({
@@ -27,7 +28,7 @@ describe('realtime contract with real Reverb server', () => {
       wsPort: parseInt(url.port || '8080', 10),
       forceTLS: url.protocol === 'wss:',
       enabledTransports: ['ws', 'wss'],
-      authorizer: echoPusherAuthorizer(api.config.auth, {
+      authorizer: echoPusherAuthorizer(auth, {
         authEndpoint: `${contractUrl}/broadcasting/auth`,
       }),
     });
@@ -67,7 +68,7 @@ describe('realtime contract with real Reverb server', () => {
       expect(updatedEvt.table).toBe('invoices');
 
       // 3. Upsert
-      await invoices.upsert([{ ref_number: 'INV-LIVE', total: 80 }]);
+      await invoices.upsert({ ref_number: 'INV-LIVE', total: 80 }, { matchOn: ['ref_number'] });
       const upsertedEvt = await waitForEvent((c) => c.action === 'upserted');
       expect(upsertedEvt.action).toBe('upserted');
 

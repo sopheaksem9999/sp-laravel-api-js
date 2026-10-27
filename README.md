@@ -357,9 +357,11 @@ The signature (`X-Webhook-Signature`, bare lowercase hex HMAC-SHA256 of the exac
 <!-- snippet:realtime -->
 ```ts
 // typecheck
+import { useQueryClient } from '@tanstack/react-query';
 import { subscribeTenant, type EchoLike } from '@sokpheak/sp-laravel-api/realtime';
 
 function setupRealtime(echo: EchoLike) {
+  const queryClient = useQueryClient();
   return subscribeTenant(echo, api, {
     tenantId: 5,
     tables: ['invoices'],
