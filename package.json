@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "Typed JavaScript client for the sopheak/sp-laravel-api Laravel package.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sopheaksem9999/sp-laravel-api-js.git"
+  },
+  "homepage": "https://github.com/sopheaksem9999/sp-laravel-api-js#readme",
+  "bugs": {
+    "url": "https://github.com/sopheaksem9999/sp-laravel-api-js/issues"
+  },
   "author": "Sem Sopheak",
   "type": "module",
   "sideEffects": false,
