@@ -88,3 +88,78 @@ export function realtime(api: Api): Realtime {
     eventName: (table, action) => `${table}.${action}`,
   };
 }
+
+/**
+ * Minimal structural type representing an Echo channel.
+ */
+export interface EchoChannelLike {
+  listen(event: string, callback: (payload: unknown) => void): EchoChannelLike;
+  stopListening?(event: string, callback?: (payload: unknown) => void): EchoChannelLike;
+}
+
+/**
+ * Minimal structural type representing Laravel Echo.
+ */
+export interface EchoLike {
+  private(name: string): EchoChannelLike;
+  leave(name: string): void;
+}
+
+/**
+ * Options for `subscribeTenant`.
+ */
+export interface SubscribeTenantOptions {
+  /** Tenant ID to subscribe to. Null, 0, or empty string falls back to 'tenant.global'. */
+  tenantId?: string | number | null;
+  /** Tables to listen to. If omitted, all tables are listened to; if empty array, no tables are listened to. */
+  tables?: readonly string[];
+  /** Handler called for each mutation event. */
+  onChange: (change: RealtimeChange) => unknown;
+}
+
+/**
+ * Subscribes an Echo-compatible client to a tenant's private channel and binds the five mutation actions
+ * (`created`, `updated`, `deleted`, `restored`, `upserted`) with leading dots for all specified tables.
+ * Returns an unsubscription function that removes listeners and leaves the channel.
+ */
+export function subscribeTenant(
+  echo: EchoLike,
+  api: Api,
+  options: SubscribeTenantOptions,
+): () => void {
+  const rt = realtime(api);
+  let rawId = options.tenantId;
+  if (typeof rawId === 'string') {
+    if (rawId.startsWith('private-')) {
+      rawId = rawId.slice('private-'.length);
+    }
+    if (rawId.startsWith('tenant.')) {
+      rawId = rawId.slice('tenant.'.length);
+    }
+  }
+  const channelName = rt.channelName(rawId);
+  const handler = rt.handler({ onChange: options.onChange });
+  const channel = echo.private(channelName);
+  const tables = options.tables;
+  const actions: readonly RealtimeAction[] = ['created', 'updated', 'deleted', 'restored', 'upserted'];
+  const boundEvents: string[] = [];
+
+  if (tables !== undefined) {
+    for (const table of tables) {
+      for (const action of actions) {
+        const event = '.' + rt.eventName(table, action);
+        channel.listen(event, handler);
+        boundEvents.push(event);
+      }
+    }
+  }
+
+  return () => {
+    if (typeof channel.stopListening === 'function') {
+      for (const event of boundEvents) {
+        channel.stopListening(event, handler);
+      }
+    }
+    echo.leave(channelName);
+  };
+}
