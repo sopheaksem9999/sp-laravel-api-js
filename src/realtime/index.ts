@@ -111,7 +111,7 @@ export interface EchoLike {
 export interface SubscribeTenantOptions {
   /** Tenant ID to subscribe to. Null, 0, or empty string falls back to 'tenant.global'. */
   tenantId?: string | number | null;
-  /** Tables to listen to. If omitted, all tables are listened to; if empty array, no tables are listened to. */
+  /** Tables to listen to. Each specified table will have listeners bound for all 5 mutation actions. If empty or omitted, no event listeners are bound. */
   tables?: readonly string[];
   /** Handler called for each mutation event. */
   onChange: (change: RealtimeChange) => unknown;
