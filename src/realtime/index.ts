@@ -163,3 +163,11 @@ export function subscribeTenant(
     echo.leave(channelName);
   };
 }
+
+export type {
+  PusherAuthData,
+  PusherAuthorizerCallback,
+  PusherAuthorizer,
+  EchoPusherAuthorizerOptions,
+} from './authorizer';
+export { echoPusherAuthorizer } from './authorizer';
