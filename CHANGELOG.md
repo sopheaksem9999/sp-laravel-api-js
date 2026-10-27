@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0
+
+### Minor Changes
+
+- Enhanced network resilience, CLI flexibility, and cursor pagination:
+  - Added configurable idempotent request retry policy (`RetryConfig`) with exponential backoff, full jitter, `Retry-After` header parsing, and `AbortSignal` cancellation support.
+  - Added `--schema` flag to typegen CLI supporting both remote OpenAPI URLs and local file paths with automatic dispatch.
+  - Added `createCursorPagination` adapter and `table.cursorPagination()` helper with inverted sorting on reverse traversals (`lastPage`).
+
 ## 0.2.0
 
 ### Minor Changes
