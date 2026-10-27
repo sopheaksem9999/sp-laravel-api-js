@@ -11,6 +11,7 @@ For low-level integrations, `realtime(api).handler({ onChange })` can be wired t
 ## Quick Start (with Laravel Echo & Reverb)
 
 ```ts
+// illustrative
 import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
 import { createApi } from '@sokpheak/sp-laravel-api';
@@ -48,6 +49,55 @@ const unsubscribe = subscribeTenant(echo, api, {
 unsubscribe();
 ```
 
+## Framework Integration
+
+### React
+
+```tsx
+// typecheck
+import { useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import type { EchoLike } from '@sokpheak/sp-laravel-api/realtime';
+import { subscribeTenant } from '@sokpheak/sp-laravel-api/realtime';
+
+export function useRealtime(echo: EchoLike, tenantId: number | null, tables: string[]) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    return subscribeTenant(echo, api, {
+      tenantId,
+      tables,
+      onChange: (change) => {
+        queryClient.invalidateQueries({ queryKey: change.queryKey });
+      },
+    });
+  }, [echo, tenantId, queryClient, tables]);
+}
+```
+
+### Vue
+
+```ts
+// typecheck
+import { watchEffect, type Ref } from 'vue';
+import { useQueryClient } from '@tanstack/vue-query';
+import type { EchoLike } from '@sokpheak/sp-laravel-api/realtime';
+import { subscribeTenant } from '@sokpheak/sp-laravel-api/realtime';
+
+export function useRealtime(echo: EchoLike, tenantId: Ref<number | null>, tables: string[]) {
+  const queryClient = useQueryClient();
+  watchEffect((onCleanup) => {
+    const unsubscribe = subscribeTenant(echo, api, {
+      tenantId: tenantId.value,
+      tables,
+      onChange: (change) => {
+        queryClient.invalidateQueries({ queryKey: change.queryKey });
+      },
+    });
+    onCleanup(unsubscribe);
+  });
+}
+```
+
 ## Broadcasting Services Support Matrix
 
 | Broadcaster / Server | Echo Broadcaster | Authorizer | Notes |
@@ -62,6 +112,7 @@ unsubscribe();
 
 #### 1. Laravel Reverb
 ```ts
+// illustrative
 const echo = new Echo({
   broadcaster: 'reverb',
   key: 'reverb-key',
@@ -76,6 +127,7 @@ const echo = new Echo({
 
 #### 2. Pusher Channels (Hosted)
 ```ts
+// illustrative
 const echo = new Echo({
   broadcaster: 'pusher',
   key: 'pusher-key',
@@ -87,6 +139,7 @@ const echo = new Echo({
 
 #### 3. Soketi / laravel-websockets (Self-Hosted)
 ```ts
+// illustrative
 const echo = new Echo({
   broadcaster: 'pusher',
   key: 'soketi-app-key',
@@ -101,6 +154,7 @@ const echo = new Echo({
 
 #### 4. Ably
 ```ts
+// illustrative
 import * as Ably from 'ably';
 
 const echo = new Echo({
@@ -111,6 +165,7 @@ const echo = new Echo({
 
 #### 5. Redis / Socket.IO
 ```ts
+// illustrative
 import io from 'socket.io-client';
 
 const echo = new Echo({

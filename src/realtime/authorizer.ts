@@ -1,4 +1,4 @@
-import type { ApiAuth } from '../core/create-api';
+import type { ApiAuth } from '../core/request';
 
 /**
  * Authentication payload returned by Pusher / Reverb channel authorization.

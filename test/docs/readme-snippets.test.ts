@@ -155,17 +155,14 @@ function useCreateInvoice() {
 // #endregion
 
 // #region snippet:realtime
-// import Echo from 'laravel-echo';
-// import { echoPusherAuthorizer, subscribeTenant } from '@sokpheak/sp-laravel-api/realtime';
+// import { subscribeTenant, type EchoLike } from '@sokpheak/sp-laravel-api/realtime';
 
-function setupEchoRealtime(echo: EchoLike, api: Api) {
-  const queryClient = useQueryClient();
-  const unsubscribe = subscribeTenant(echo, api, {
+function setupRealtime(echo: EchoLike) {
+  return subscribeTenant(echo, api, {
     tenantId: 5,
     tables: ['invoices'],
     onChange: (change) => queryClient.invalidateQueries({ queryKey: change.queryKey }),
   });
-  return unsubscribe;
 }
 // #endregion
 

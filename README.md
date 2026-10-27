@@ -357,17 +357,14 @@ The signature (`X-Webhook-Signature`, bare lowercase hex HMAC-SHA256 of the exac
 <!-- snippet:realtime -->
 ```ts
 // typecheck
-import Echo from 'laravel-echo';
-import { echoPusherAuthorizer, subscribeTenant } from '@sokpheak/sp-laravel-api/realtime';
+import { subscribeTenant, type EchoLike } from '@sokpheak/sp-laravel-api/realtime';
 
-function setupEchoRealtime(echo: EchoLike, api: Api) {
-  const queryClient = useQueryClient();
-  const unsubscribe = subscribeTenant(echo, api, {
+function setupRealtime(echo: EchoLike) {
+  return subscribeTenant(echo, api, {
     tenantId: 5,
     tables: ['invoices'],
     onChange: (change) => queryClient.invalidateQueries({ queryKey: change.queryKey }),
   });
-  return unsubscribe;
 }
 ```
 
@@ -376,6 +373,7 @@ The module is transport-free: `subscribeTenant` connects any Echo-compatible cli
 #### Broadcasting Services Setup
 - **Laravel Reverb:**
   ```ts
+  // illustrative
   const echo = new Echo({
     broadcaster: 'reverb',
     key: 'reverb-key',
@@ -389,6 +387,7 @@ The module is transport-free: `subscribeTenant` connects any Echo-compatible cli
   ```
 - **Pusher Channels (Hosted):**
   ```ts
+  // illustrative
   const echo = new Echo({
     broadcaster: 'pusher',
     key: 'pusher-key',
@@ -399,6 +398,7 @@ The module is transport-free: `subscribeTenant` connects any Echo-compatible cli
   ```
 - **Soketi / laravel-websockets (Self-Hosted):**
   ```ts
+  // illustrative
   const echo = new Echo({
     broadcaster: 'pusher',
     key: 'soketi-key',
