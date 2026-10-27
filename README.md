@@ -1,6 +1,10 @@
 # @sokpheak/sp-laravel-api
 
-Typed JavaScript client for the [`sopheak/sp-laravel-api`](https://packagist.org/packages/sopheak/sp-laravel-api) Laravel package. ESM and CJS, no runtime dependencies, runs in browsers, edge runtimes and Node 20+. CI runs the build, guards and smoke imports (CJS and ESM, plus the dist, modules and bundle guards) on Node 20, and the full test suite on Node 22 and 24 (Vitest 5 needs Node 22.12+), on Deno and Bun, and under `@edge-runtime/vm`. The edge run proves the code works with the edge web globals, but it cannot block Node globals (vitest leaves `process` and `Buffer` visible there), so an AST scan of `src/` and the dist and browser-bundle checks are what keep Node-only code out.
+Typed JavaScript client service for the [`sopheak/sp-laravel-api`](https://packagist.org/packages/sopheak/sp-laravel-api) Laravel package. ESM and CJS, no runtime dependencies, runs in browsers, edge runtimes and Node 20+. CI runs the build, guards and smoke imports (CJS and ESM, plus the dist, modules and bundle guards) on Node 20, and the full test suite on Node 22 and 24 (Vitest 5 needs Node 22.12+), on Deno and Bun, and under `@edge-runtime/vm`. The edge run proves the code works with the edge web globals, but it cannot block Node globals (vitest leaves `process` and `Buffer` visible there), so an AST scan of `src/` and the dist and browser-bundle checks are what keep Node-only code out.
+
+> [!IMPORTANT]
+> **Client Service Compatibility Notice:**  
+> `@sokpheak/sp-laravel-api` is a client-side library and **works only with** backends running [`sopheak/sp-laravel-api`](https://packagist.org/packages/sopheak/sp-laravel-api). It provides typed Table Gateway CRUD operations, query serialization, REST modules (bulk, attachments, audit, permissions), and multi-broadcaster realtime event subscriptions.
 
 It ships the core (`createApi`, `table()`, `api.fn()` / `api.rpc()`, the query serializer, pages and `iterate`, query-cache keys, and one error type), seven feature modules as subpath imports (`bulk`, `attachments`, `audit`, `permissions`, `webhooks`, `realtime`, `docs`; see [Modules](#modules)), and the Node-only `sp-laravel-api typegen` CLI.
 
