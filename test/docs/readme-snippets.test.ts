@@ -3,6 +3,8 @@ import readme from '../../README.md?raw';
 import self from './readme-snippets.test.ts?raw';
 import { createApi } from '../../src/index';
 import type { Api, Query } from '../../src/index';
+import type { EchoLike } from '../../src/realtime';
+import { subscribeTenant } from '../../src/realtime';
 
 // The README snippets below are copied verbatim (imports aside) between the region markers.
 // The sync test at the bottom fails when README.md and this file drift apart.
@@ -152,6 +154,21 @@ function useCreateInvoice() {
 }
 // #endregion
 
+// #region snippet:realtime
+// import Echo from 'laravel-echo';
+// import { echoPusherAuthorizer, subscribeTenant } from '@sokpheak/sp-laravel-api/realtime';
+
+function setupEchoRealtime(echo: EchoLike, api: Api) {
+  const queryClient = useQueryClient();
+  const unsubscribe = subscribeTenant(echo, api, {
+    tenantId: 5,
+    tables: ['invoices'],
+    onChange: (change) => queryClient.invalidateQueries({ queryKey: change.queryKey }),
+  });
+  return unsubscribe;
+}
+// #endregion
+
 describe('README TanStack example', () => {
   it('builds stable keys and runs the query and mutation', async () => {
     api = createApi({ baseUrl: 'https://api.example.com/api/v2', fetch: fakeFetch });
@@ -195,7 +212,7 @@ function normalise(code: string): string {
 }
 
 describe('README stays in sync with this file', () => {
-  it.each(['quickstart', 'tanstack'])('snippet %s matches', (name) => {
+  it.each(['quickstart', 'tanstack', 'realtime'])('snippet %s matches', (name) => {
     expect(block(readme, name)).toBe(region(self, name));
   });
 });
