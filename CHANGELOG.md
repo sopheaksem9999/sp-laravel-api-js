@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+### Minor Changes
+
+- Realtime multi-broadcaster support in `@sokpheak/sp-laravel-api/realtime`:
+  - Added `subscribeTenant(echo, api, options)` helper with structural `EchoLike` interface and zero runtime dependencies.
+  - Added `echoPusherAuthorizer(auth, options)` helper for Pusher and Laravel Reverb channel authorization with automatic 401 retry recovery.
+  - Documented setup configurations for Laravel Reverb, Pusher Channels, Soketi, Ably, and Redis / Socket.IO with compiled and typechecked snippets.
+  - Added real-server Reverb contract test suite (`test/realtime/reverb.contract.test.ts`).
+  - Verified publish hygiene, clean neutral vocabulary, and secret scanning with Gitleaks.
+
 ## 0.1.0
 
 ### Minor Changes

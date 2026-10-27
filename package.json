@@ -1,6 +1,6 @@
 {
   "name": "@sokpheak/sp-laravel-api",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Typed JavaScript client for the sopheak/sp-laravel-api Laravel package.",
   "license": "MIT",
   "repository": {
