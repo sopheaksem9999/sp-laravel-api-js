@@ -44,9 +44,9 @@ function blocks(file: string): Block[] {
 }
 
 const STUBS = `
-type SpApi = import('@sopheak/sp-laravel-api').Api;
-type SpTable<T> = import('@sopheak/sp-laravel-api').Table<T>;
-type SpAuth = import('@sopheak/sp-laravel-api').ApiAuth;
+type SpApi = import('@sokpheak/sp-laravel-api').Api;
+type SpTable<T> = import('@sokpheak/sp-laravel-api').Table<T>;
+type SpAuth = import('@sokpheak/sp-laravel-api').ApiAuth;
 
 interface Invoice {
   id: number;
@@ -58,7 +58,7 @@ interface Invoice {
 
 declare const api: SpApi;
 declare const invoices: SpTable<Invoice>;
-declare const att: ReturnType<typeof import('@sopheak/sp-laravel-api/attachments').attachments>;
+declare const att: ReturnType<typeof import('@sokpheak/sp-laravel-api/attachments').attachments>;
 declare const auth: SpAuth;
 declare const serviceAccountAuth: SpAuth;
 declare const tenantId: number;
@@ -117,7 +117,7 @@ declare module 'vue' {
   export interface Ref<T> { value: T }
   export function watchEffect(effect: (onCleanup: (fn: () => void) => void) => void): void;
 }
-declare module '@sopheak/sp-jwt-auth' {
+declare module '@sokpheak/sp-jwt-auth' {
   export function createJwtAuth(o: Record<string, unknown>): {
     getHeaders(): Promise<Record<string, string>>;
     getState(): { companyId: number | null };
@@ -172,8 +172,8 @@ describe('README code blocks', () => {
       skipLibCheck: true,
       jsx: ts.JsxEmit.Preserve,
       paths: {
-        '@sopheak/sp-laravel-api': [join(ROOT, 'src/index.ts')],
-        ...Object.fromEntries(MODULES.map((m) => [`@sopheak/sp-laravel-api/${m}`, [join(ROOT, `src/${m}/index.ts`)]])),
+        '@sokpheak/sp-laravel-api': [join(ROOT, 'src/index.ts')],
+        ...Object.fromEntries(MODULES.map((m) => [`@sokpheak/sp-laravel-api/${m}`, [join(ROOT, `src/${m}/index.ts`)]])),
       },
     };
     const program = ts.createProgram([join(dir, 'stubs.d.ts'), ...map.keys()], options);

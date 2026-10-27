@@ -1,8 +1,8 @@
-# `@sopheak/sp-laravel-api/realtime`
+# `@sokpheak/sp-laravel-api/realtime`
 
 ```ts
 // typecheck
-import { realtime } from '@sopheak/sp-laravel-api/realtime';
+import { realtime } from '@sokpheak/sp-laravel-api/realtime';
 
 const rt = realtime(api);
 const onBroadcast = rt.handler({
@@ -18,7 +18,7 @@ React:
 // typecheck
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { realtime } from '@sopheak/sp-laravel-api/realtime';
+import { realtime } from '@sokpheak/sp-laravel-api/realtime';
 
 function useRealtime(echo: Echo, tenantId: number | null, tables: string[]) {
   const queryClient = useQueryClient();
@@ -43,7 +43,7 @@ Vue:
 // typecheck
 import { watchEffect, type Ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import { realtime } from '@sopheak/sp-laravel-api/realtime';
+import { realtime } from '@sokpheak/sp-laravel-api/realtime';
 
 export function useRealtime(echo: Echo, tenantId: Ref<number | null>, tables: string[]) {
   const queryClient = useQueryClient();

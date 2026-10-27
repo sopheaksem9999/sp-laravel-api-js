@@ -1,11 +1,11 @@
-# `@sopheak/sp-laravel-api/docs`
+# `@sokpheak/sp-laravel-api/docs`
 
 The host's `api_docs` routes, `capabilities()` (which backend modules the host exposes), and the `sp-laravel-api typegen` CLI that turns the OpenAPI document into TypeScript types.
 
 ```ts
 // typecheck
-import { createApi } from '@sopheak/sp-laravel-api';
-import { capabilities, docs } from '@sopheak/sp-laravel-api/docs';
+import { createApi } from '@sokpheak/sp-laravel-api';
+import { capabilities, docs } from '@sokpheak/sp-laravel-api/docs';
 
 const api = createApi({ baseUrl: 'https://host.example/api/v2', rpcPrefix: 't', auth });
 
@@ -62,7 +62,7 @@ npx sp-laravel-api typegen --file openapi.json --out src/types/sp-api.ts
 
 ```ts
 // typecheck
-import { createApi } from '@sopheak/sp-laravel-api';
+import { createApi } from '@sokpheak/sp-laravel-api';
 import type { Tables } from './types/sp-api';
 
 const api = createApi<Tables>({ baseUrl: '/api/v2' });

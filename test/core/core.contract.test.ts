@@ -1,7 +1,7 @@
 // Contract tests for src/core against the sp-laravel-api-example backend (see contract/README.md).
 // Live when SP_CONTRACT_URL is set; otherwise replays test/fixtures/<backend-version>/. With neither a
 // backend nor fixtures the whole suite is SKIPPED (never silently passing). Auth is a seeded bearer
-// token (SP_CONTRACT_TOKEN, from contract/.env), not @sopheak/sp-jwt-auth.
+// token (SP_CONTRACT_TOKEN, from contract/.env), not @sokpheak/sp-jwt-auth.
 import { describe, expect, it } from 'vitest';
 import { createApi } from '../../src';
 import { liveOrReplay } from '../support/replay';

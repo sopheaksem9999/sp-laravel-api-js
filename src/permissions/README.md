@@ -1,11 +1,11 @@
-# `@sopheak/sp-laravel-api/permissions`
+# `@sokpheak/sp-laravel-api/permissions`
 
 Manage roles, read permissions, and attach or detach permissions on a role.
 
 ```ts
 // typecheck
-import { createApi } from '@sopheak/sp-laravel-api';
-import { permissions } from '@sopheak/sp-laravel-api/permissions';
+import { createApi } from '@sokpheak/sp-laravel-api';
+import { permissions } from '@sokpheak/sp-laravel-api/permissions';
 
 const api = createApi({ baseUrl: 'https://host.example/api' });
 const p = permissions(api);

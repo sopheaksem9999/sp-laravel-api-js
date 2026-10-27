@@ -1,11 +1,11 @@
-# `@sopheak/sp-laravel-api/audit`
+# `@sokpheak/sp-laravel-api/audit`
 
 Read the host's audit log: the `sp_audit_logs` table plus the `stats`, `field-timeline` and `field-stats` functions.
 
 ```ts
 // typecheck
-import { createApi } from '@sopheak/sp-laravel-api';
-import { audit } from '@sopheak/sp-laravel-api/audit';
+import { createApi } from '@sokpheak/sp-laravel-api';
+import { audit } from '@sokpheak/sp-laravel-api/audit';
 
 const api = createApi({ baseUrl: 'https://host.example/api', tenant: { header: 'X-Tenant-ID', value: () => tenantId } });
 const log = audit(api);
@@ -45,4 +45,4 @@ The tenant comes from the tenant header configured on the client (`createApi({ t
 
 Every call needs a user allowed by the Gate `manage-audit-logs`: no user is 401 (`unauthenticated`), a user the gate denies is 403 (`forbidden`). `stats`, `fieldTimeline` and `fieldStats` carry `module: 'audit'`.
 
-The audit routes are off by default. A 404 on `stats` / `fieldTimeline` / `fieldStats` (calls with no record lookup) is `code: 'module_disabled'`. `list` is a plain table call (`module` is null); with audit off, the host answers its unknown-table 404, which the core reports as `not_found`. To find out up front whether the host has audit on, use `capabilities(api)` from `@sopheak/sp-laravel-api/docs` (`audit: true | false`).
+The audit routes are off by default. A 404 on `stats` / `fieldTimeline` / `fieldStats` (calls with no record lookup) is `code: 'module_disabled'`. `list` is a plain table call (`module` is null); with audit off, the host answers its unknown-table 404, which the core reports as `not_found`. To find out up front whether the host has audit on, use `capabilities(api)` from `@sokpheak/sp-laravel-api/docs` (`audit: true | false`).

@@ -14,7 +14,7 @@ function check(ok: boolean, what: string): void {
   console.log(`  ok  ${what}`);
 }
 
-console.log(`deno-smoke: @sopheak/sp-laravel-api on ${name}`);
+console.log(`deno-smoke: @sokpheak/sp-laravel-api on ${name}`);
 const seen: string[] = [];
 const fakeFetch = async (input: RequestInfo | URL): Promise<Response> => {
   seen.push(String(input));

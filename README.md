@@ -1,4 +1,4 @@
-# @sopheak/sp-laravel-api
+# @sokpheak/sp-laravel-api
 
 Typed JavaScript client for the [`sopheak/sp-laravel-api`](https://packagist.org/packages/sopheak/sp-laravel-api) Laravel package. ESM and CJS, no runtime dependencies, runs in browsers, edge runtimes and Node 20+. CI runs the build, guards and smoke imports (CJS and ESM, plus the dist, modules and bundle guards) on Node 20, and the full test suite on Node 22 and 24 (Vitest 5 needs Node 22.12+), on Deno and Bun, and under `@edge-runtime/vm`. The edge run proves the code works with the edge web globals, but it cannot block Node globals (vitest leaves `process` and `Buffer` visible there), so an AST scan of `src/` and the dist and browser-bundle checks are what keep Node-only code out.
 
@@ -7,7 +7,7 @@ It ships the core (`createApi`, `table()`, `api.fn()` / `api.rpc()`, the query s
 ## Install
 
 ```sh
-npm install @sopheak/sp-laravel-api
+npm install @sokpheak/sp-laravel-api
 ```
 
 ## Quick start
@@ -17,7 +17,7 @@ Core only, no other package needed. This code is run by the test suite (`test/do
 <!-- snippet:quickstart -->
 ```ts
 // typecheck
-import { createApi } from '@sopheak/sp-laravel-api';
+import { createApi } from '@sokpheak/sp-laravel-api';
 
 const token = 'eyJ...'; // from your login flow
 const companyId = 5;
@@ -106,7 +106,7 @@ Every failure (HTTP error, Laravel validation response, HTML error page, empty b
 
 ```ts
 // typecheck
-import { isSpApiError } from '@sopheak/sp-laravel-api';
+import { isSpApiError } from '@sokpheak/sp-laravel-api';
 
 try {
   await invoices.create({ total: -1 });
@@ -147,7 +147,7 @@ The package keeps no cache of its own. `api.keys` gives stable, serialisable key
 ```ts
 // typecheck
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { Query } from '@sopheak/sp-laravel-api';
+import type { Query } from '@sokpheak/sp-laravel-api';
 
 function useInvoices(q: Query) {
   return useQuery({
@@ -170,14 +170,14 @@ function useCreateInvoice() {
 
 The client does not care which framework you use: it is plain functions. The examples below show the usual glue for one thing, reacting to auth state (for example the signed-in user or company), using an `auth` object that offers `getState()` and `subscribe()`.
 
-**This package does not depend on `@sopheak/sp-jwt-auth`.** Those two methods come from the sibling package `@sopheak/sp-jwt-auth` (`createJwtAuth(...)`, which also satisfies the `ApiAuth` seam by exposing `getHeaders()`). Any object with `getHeaders()` works as `auth` here; use your own if you do not need that package.
+**This package does not depend on `@sokpheak/sp-jwt-auth`.** Those two methods come from the sibling package `@sokpheak/sp-jwt-auth` (`createJwtAuth(...)`, which also satisfies the `ApiAuth` seam by exposing `getHeaders()`). Any object with `getHeaders()` works as `auth` here; use your own if you do not need that package.
 
 ```ts
 // typecheck
-import { createApi } from '@sopheak/sp-laravel-api';
-import { createJwtAuth } from '@sopheak/sp-jwt-auth';
+import { createApi } from '@sokpheak/sp-laravel-api';
+import { createJwtAuth } from '@sokpheak/sp-jwt-auth';
 
-// auth: a JWT auth object from @sopheak/sp-jwt-auth (configuration omitted)
+// auth: a JWT auth object from @sokpheak/sp-jwt-auth (configuration omitted)
 const auth = createJwtAuth({ /* ... */ });
 const api = createApi({
   baseUrl: '/api/v2',
@@ -195,7 +195,7 @@ const api = createApi({
 | Svelte | `const authState = readable(auth.getState(), (set) => auth.subscribe(() => set(auth.getState())));` (use as `$authState`, also in Svelte 5) |
 | Solid | `const state = from((set) => auth.subscribe(() => set(auth.getState())));` |
 
-These glue lines depend on the framework and on `@sopheak/sp-jwt-auth`, so they are shown for reference and are not run by this package's tests.
+These glue lines depend on the framework and on `@sokpheak/sp-jwt-auth`, so they are shown for reference and are not run by this package's tests.
 
 ### Angular and `fetch`
 
@@ -203,7 +203,7 @@ The client calls `fetch`, not Angular's `HttpClient`, so `HttpClient` intercepto
 
 ```ts
 // typecheck
-import { createApi } from '@sopheak/sp-laravel-api';
+import { createApi } from '@sokpheak/sp-laravel-api';
 
 const api = createApi({
   baseUrl: '/api/v2',
@@ -229,7 +229,7 @@ On a server, who the request is made as decides how many `createApi` instances y
 
 ```ts
 // typecheck
-import { createApi } from '@sopheak/sp-laravel-api';
+import { createApi } from '@sokpheak/sp-laravel-api';
 
 // Express, as the calling user: a new instance per request
 app.use((req, _res, next) => {
@@ -255,13 +255,13 @@ The core is in 0.1. `bulk`, `attachments`, `audit`, `permissions`, `webhooks`, `
 
 | Backend module | Import path | Status |
 |---|---|---|
-| `bulk_operations` | `@sopheak/sp-laravel-api/bulk` | available (see below) |
-| `attachments` | `@sopheak/sp-laravel-api/attachments` | available (see below) |
-| `audit` | `@sopheak/sp-laravel-api/audit` | available (see below) |
-| `permissions` | `@sopheak/sp-laravel-api/permissions` | available (see below) |
-| `webhooks` | `@sopheak/sp-laravel-api/webhooks` | available (see below) |
-| Broadcasting | `@sopheak/sp-laravel-api/realtime` | available (see below) |
-| `api_docs` | `@sopheak/sp-laravel-api/docs` + CLI `sp-laravel-api typegen` | available (see below) |
+| `bulk_operations` | `@sokpheak/sp-laravel-api/bulk` | available (see below) |
+| `attachments` | `@sokpheak/sp-laravel-api/attachments` | available (see below) |
+| `audit` | `@sokpheak/sp-laravel-api/audit` | available (see below) |
+| `permissions` | `@sokpheak/sp-laravel-api/permissions` | available (see below) |
+| `webhooks` | `@sokpheak/sp-laravel-api/webhooks` | available (see below) |
+| Broadcasting | `@sokpheak/sp-laravel-api/realtime` | available (see below) |
+| `api_docs` | `@sokpheak/sp-laravel-api/docs` + CLI `sp-laravel-api typegen` | available (see below) |
 
 Each is a function that takes a table from the core client, so bundlers drop whatever you do not import, and the main entry never includes module code.
 
@@ -269,7 +269,7 @@ Each is a function that takes a table from the core client, so bundlers drop wha
 
 ```ts
 // typecheck
-import { bulk } from '@sopheak/sp-laravel-api/bulk';
+import { bulk } from '@sokpheak/sp-laravel-api/bulk';
 
 const invoices = bulk(api.table<Invoice>('invoices'));
 const r = await invoices.create(rows); // chunks of 1000, one request each
@@ -283,7 +283,7 @@ await invoices.upsert(rows, { matchOn: ['number'] }); // { count }
 
 ```ts
 // typecheck
-import { attachments } from '@sopheak/sp-laravel-api/attachments';
+import { attachments } from '@sokpheak/sp-laravel-api/attachments';
 
 const att = attachments(api);
 const file = await att.upload(blob, { recordType: 'products', recordId: 7, name: 'photo.png' });
@@ -298,7 +298,7 @@ const big = await att.uploadMultipart(video, { onProgress: ({ loaded, total }) =
 
 ```ts
 // typecheck
-import { audit } from '@sopheak/sp-laravel-api/audit';
+import { audit } from '@sokpheak/sp-laravel-api/audit';
 
 const log = audit(api);
 // read-only sp_audit_logs; relations are embedded through select (there is no include parameter)
@@ -313,7 +313,7 @@ const history = await log.fieldTimeline('invoices', 42, 'status', { limit: 20 })
 
 ```ts
 // typecheck
-import { permissions } from '@sopheak/sp-laravel-api/permissions';
+import { permissions } from '@sokpheak/sp-laravel-api/permissions';
 
 const p = permissions(api);
 const role = await p.roles.create({ name: 'Auditor' });
@@ -327,7 +327,7 @@ await p.detach(role.id, [2]);     // detach the link only; the permission row st
 
 ```ts
 // typecheck
-import { webhooks, verifyWebhook, parseWebhook } from '@sopheak/sp-laravel-api/webhooks';
+import { webhooks, verifyWebhook, parseWebhook } from '@sokpheak/sp-laravel-api/webhooks';
 
 // Admin: the backend never generates or returns the secret, so the client creates it and shows it once.
 const w = webhooks(api);
@@ -356,7 +356,7 @@ The signature (`X-Webhook-Signature`, bare lowercase hex HMAC-SHA256 of the exac
 
 ```ts
 // typecheck
-import { realtime } from '@sopheak/sp-laravel-api/realtime';
+import { realtime } from '@sokpheak/sp-laravel-api/realtime';
 
 const rt = realtime(api);
 const onBroadcast = rt.handler({
@@ -372,7 +372,7 @@ React:
 // typecheck
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { realtime } from '@sopheak/sp-laravel-api/realtime';
+import { realtime } from '@sokpheak/sp-laravel-api/realtime';
 
 function useRealtime(echo: Echo, tenantId: number | null, tables: string[]) {
   const queryClient = useQueryClient();
@@ -397,7 +397,7 @@ Vue:
 // typecheck
 import { watchEffect, type Ref } from 'vue';
 import { useQueryClient } from '@tanstack/vue-query';
-import { realtime } from '@sopheak/sp-laravel-api/realtime';
+import { realtime } from '@sokpheak/sp-laravel-api/realtime';
 
 export function useRealtime(echo: Echo, tenantId: Ref<number | null>, tables: string[]) {
   const queryClient = useQueryClient();
@@ -428,7 +428,7 @@ See [src/realtime/README.md](src/realtime/README.md).
 
 ```ts
 // typecheck
-import { capabilities, docs } from '@sopheak/sp-laravel-api/docs';
+import { capabilities, docs } from '@sokpheak/sp-laravel-api/docs';
 
 const doc = await docs(api).openapi(); // OpenAPI 3.0.3 document
 const text = await docs(api).llms();   // markdown
@@ -452,7 +452,7 @@ npx sp-laravel-api typegen --file openapi.json --out src/types/sp-api.ts  # offl
 
 ```ts
 // typecheck
-import { createApi } from '@sopheak/sp-laravel-api';
+import { createApi } from '@sokpheak/sp-laravel-api';
 import type { Tables } from './types/sp-api';
 
 const api = createApi<Tables>({ baseUrl: '/api/v2' });
@@ -463,7 +463,7 @@ The CLI (Node 20+) emits an interface per `{Name}Read` / `{Name}Write` schema an
 
 ## Backend compatibility
 
-| `@sopheak/sp-laravel-api` | `sopheak/sp-laravel-api` (Laravel) |
+| `@sokpheak/sp-laravel-api` | `sopheak/sp-laravel-api` (Laravel) |
 |---|---|
 | `0.1` | `^0.5.06` |
 

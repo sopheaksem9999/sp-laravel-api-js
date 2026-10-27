@@ -45,7 +45,7 @@ afterEach(() => {
 
 async function quickStart(): Promise<void> {
   // #region snippet:quickstart
-  // import { createApi } from '@sopheak/sp-laravel-api';
+  // import { createApi } from '@sokpheak/sp-laravel-api';
 
   const token = 'eyJ...'; // from your login flow
   const companyId = 5;
@@ -133,7 +133,7 @@ let api: Api;
 
 // #region snippet:tanstack
 // import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-// import type { Query } from '@sopheak/sp-laravel-api';
+// import type { Query } from '@sokpheak/sp-laravel-api';
 
 function useInvoices(q: Query) {
   return useQuery({

@@ -1,11 +1,11 @@
-# `@sopheak/sp-laravel-api/attachments`
+# `@sokpheak/sp-laravel-api/attachments`
 
 Upload files (form, direct to storage, or S3 multipart for large files), clone temp files, build view/download URLs, link attachments to records and manage folders.
 
 ```ts
 // typecheck
-import { createApi } from '@sopheak/sp-laravel-api';
-import { attachments } from '@sopheak/sp-laravel-api/attachments';
+import { createApi } from '@sokpheak/sp-laravel-api';
+import { attachments } from '@sokpheak/sp-laravel-api/attachments';
 
 const api = createApi({ baseUrl: 'https://host.example/api' });
 const att = attachments(api);
@@ -36,7 +36,7 @@ The routes are table functions on `sp_attachments`: `{baseUrl}/sp_attachments/{r
 | `forRecord(t, id).link(ids, { collection })` | `POST …/record/{t}/{id}` | one request `{ attachment_ids: [...], collection_name? }` (backend >= 0.5.06, idempotent per id); with `quoting: false` (older hosts) one `{ attachment_id }` request per id, in order; returns the combined links |
 | `forRecord(t, id).unlink(attachmentId)` | `DELETE …/record/{t}/{id}/{attachmentId}` | |
 | `folders.list(where?, { perPage, cursor, page })` | `GET …/folders?per_page=…` | one page as an array; `per_page` is always sent (`perPage`, else `defaults.perPage`, else 25); filters carry operators; a bare value is sent as `eq` (`parent_id=eq.1`); the backend ignores a literal `parent_id=1` |
-| `folders.listPage(where?, { perPage, cursor, page })` | same | the core `Page` (`data`, `next`, `prev`, `total`, `meta`; import the type from the main entry: `import type { Page } from '@sopheak/sp-laravel-api'`); `cursor: null` sends `cursor=0`. Current backends answer this route without `meta`, so `next` stays `null`: page with `page` (offset) there |
+| `folders.listPage(where?, { perPage, cursor, page })` | same | the core `Page` (`data`, `next`, `prev`, `total`, `meta`; import the type from the main entry: `import type { Page } from '@sokpheak/sp-laravel-api'`); `cursor: null` sends `cursor=0`. Current backends answer this route without `meta`, so `next` stays `null`: page with `page` (offset) there |
 | `folders.create(b)` / `update(id, b)` / `remove(id)` | `POST …/folders`, `PUT …/folders/{id}`, `DELETE …/folders/{id}` | `remove` answers 409 when the folder is not empty |
 
 Differences from the older docs: the backend field is `collection_name` (the client option is `collection`); `name` on `upload` is the file name of the multipart part (the backend has no `name` field; it also accepts `title` and `caption`); ids are sent as strings because the backend validates them as strings.
@@ -63,7 +63,7 @@ or use the signed, public `preview_url` when the host enables previews.
 
 ## Errors
 
-- 404 depends on the call. Calls with no lookup target are feature routes, so a 404 becomes `code: 'module_disabled'` (the host has `attachments` off): `upload` without `recordType`, `folders.list` and `folders.create`. Lookup-style calls keep `code: 'not_found'`, because the backend answers a plain `{ message }` 404 for a missing target record, attachment, link or folder: `cloneTemp`, `forRecord(...).list/link/unlink`, `folders.update/remove`, and `upload` with `recordType`. A module switched off therefore reads as `not_found` on those calls; do not hide the attachments UI on `not_found`. `capabilities(api)` from `@sopheak/sp-laravel-api/docs` is the reliable way to detect a disabled module (`attachments`, and `directUpload` for direct/multipart uploads).
+- 404 depends on the call. Calls with no lookup target are feature routes, so a 404 becomes `code: 'module_disabled'` (the host has `attachments` off): `upload` without `recordType`, `folders.list` and `folders.create`. Lookup-style calls keep `code: 'not_found'`, because the backend answers a plain `{ message }` 404 for a missing target record, attachment, link or folder: `cloneTemp`, `forRecord(...).list/link/unlink`, `folders.update/remove`, and `upload` with `recordType`. A module switched off therefore reads as `not_found` on those calls; do not hide the attachments UI on `not_found`. `capabilities(api)` from `@sokpheak/sp-laravel-api/docs` is the reliable way to detect a disabled module (`attachments`, and `directUpload` for direct/multipart uploads).
 - 410: a temp attachment has expired (`cloneTemp` of an expired file). Surfaces with `status: 410`.
 - 409: `folders.remove` on a folder that is not empty. Surfaces with `status: 409` (`code: 'unknown'`).
 - 422: validation failures (size, visibility, missing file) with `fieldErrors`.
@@ -135,7 +135,7 @@ Browser uploads need a CORS policy on the bucket that allows `PUT` from your ori
 
 ```ts
 // typecheck
-import type { MultipartState } from '@sopheak/sp-laravel-api/attachments';
+import type { MultipartState } from '@sokpheak/sp-laravel-api/attachments';
 
 const saved = localStorage.getItem('upload');
 // part_size and visibility come from the saved state; a mismatching option is rejected.

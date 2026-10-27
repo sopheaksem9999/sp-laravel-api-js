@@ -1,11 +1,11 @@
-# `@sopheak/sp-laravel-api/bulk`
+# `@sokpheak/sp-laravel-api/bulk`
 
 Bulk create, update, delete, upsert and mixed writes for one table, with automatic chunking.
 
 ```ts
 // typecheck
-import { createApi } from '@sopheak/sp-laravel-api';
-import { bulk } from '@sopheak/sp-laravel-api/bulk';
+import { createApi } from '@sokpheak/sp-laravel-api';
+import { bulk } from '@sokpheak/sp-laravel-api/bulk';
 
 const api = createApi({ baseUrl: 'https://host.example/api' });
 const invoices = bulk(api.table<Invoice>('invoices'));
@@ -20,7 +20,7 @@ await invoices.upsert(rows, { matchOn: ['number'] }); // -> { count }
 await invoices.mixed({ create: newRows, update: changed, delete: [9] });
 ```
 
-Every call goes through `table.api.request`, so auth, the tenant header, request ids and `SpApiError` all behave as in the core. Errors carry `module: 'bulk'`; a 404 on a bulk route (the host has `bulk_operations` off) becomes `code: 'module_disabled'`. With the module on, the only 404 the bulk routes produce is an unknown table, so a **mistyped table name, or a table the host hides, also reads as `module_disabled`**: the client cannot tell the two apart (a documented cost of mapping every bulk 404 to `module_disabled`). Use `capabilities(api)` from `@sopheak/sp-laravel-api/docs` to confirm the module is on, then suspect the table name.
+Every call goes through `table.api.request`, so auth, the tenant header, request ids and `SpApiError` all behave as in the core. Errors carry `module: 'bulk'`; a 404 on a bulk route (the host has `bulk_operations` off) becomes `code: 'module_disabled'`. With the module on, the only 404 the bulk routes produce is an unknown table, so a **mistyped table name, or a table the host hides, also reads as `module_disabled`**: the client cannot tell the two apart (a documented cost of mapping every bulk 404 to `module_disabled`). Use `capabilities(api)` from `@sokpheak/sp-laravel-api/docs` to confirm the module is on, then suspect the table name.
 
 ## Backend contract (verified against `sp-laravel-api` source, `HasBulkOperations.php`, `RecordService::bulkRecord`, `routes/api.php`)
 
