@@ -1,11 +1,12 @@
 import { SpApiError } from './errors';
-import { buildPage } from './page';
-import type { Page } from './page';
+import { buildPage, createCursorPagination } from './page';
+import type { CursorPagination, CursorPaginationOptions, Page } from './page';
 import type { AggregateRow, AggregateSpec, Query, SelectItem, Where } from './query-types';
 import type { Api } from './create-api';
 import type { createRequester } from './request';
 
-export type { Page } from './page';
+export type { CursorPagination, CursorPaginationOptions, Page } from './page';
+export { buildPage, createCursorPagination } from './page';
 
 /** What `table.restore(id)` resolves: the backend's own count of restored rows (`data` of `POST {table}/{id}/restore`). */
 export type RestoreResult = { restored: number };
@@ -44,6 +45,8 @@ export interface Table<T, W = T> {
     spec: S,
     o?: { where?: Where; groupBy?: G[] } & CallOptions,
   ): Promise<{ rows: AggregateRow<S, G[]>[]; meta: Record<string, unknown> }>;
+  /** Creates a cursor pagination boundary controller for this table. */
+  cursorPagination(o?: CursorPaginationOptions): CursorPagination<T>;
 }
 
 /** A table before `createApi` attaches `api`. */
@@ -148,6 +151,9 @@ export function makeTable<T, W = T>(
         if (page.next === (query.cursor === null || query.cursor === undefined ? '0' : String(query.cursor))) return;
         query = { ...query, cursor: page.next };
       }
+    },
+    cursorPagination(o) {
+      return createCursorPagination({ list }, o);
     },
   };
 }

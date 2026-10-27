@@ -504,6 +504,7 @@ if (caps === 'unknown') {
 ```sh
 npx sp-laravel-api typegen --url https://host/api/v2/docs/openapi.json --out src/types/sp-api.ts
 npx sp-laravel-api typegen --file openapi.json --out src/types/sp-api.ts  # offline, from php artisan sp-laravel-api:export-openapi
+npx sp-laravel-api typegen --schema openapi.json --out src/types/sp-api.ts # alias accepting URL or file path
 ```
 
 ```ts
@@ -515,7 +516,7 @@ const api = createApi<Tables>({ baseUrl: '/api/v2' });
 const invoice = await api.table('invoices').get(7); // typed as InvoicesRead, no generic
 ```
 
-The CLI (Node 20+) emits an interface per `{Name}Read` / `{Name}Write` schema and `interface Tables`; the output is deterministic. Options for `--url`: `--header 'Name: value'` (repeatable), `SP_API_TOKEN` (sent as a bearer token), `--tenant <id>` (with `--tenant-header <name>`, default `X-Tenant-ID`) and `--timeout <seconds>` (default 30). Credentials in the URL itself are refused. Exit codes: 0 ok, 1 usage, 2 failure (including a timeout); errors never print tokens or headers. Private docs answer 404 to any token, so use `--file`. The backend marks only non-nullable columns as `required` and emits no `nullable` flag, so every other column is typed `name?: T | null` (safe, if sometimes wider than the column), `id` is always present on rows, JSON columns are `unknown`, and computed attributes are not in the schema (add them to your type and list them in `select`). A table name missing from `Tables` falls back to `Table<unknown>` rather than failing to compile, and the modules (`bulk` etc.) type writes with the read type. See [src/docs/README.md](src/docs/README.md).
+The CLI (Node 20+) emits an interface per `{Name}Read` / `{Name}Write` schema and `interface Tables`; the output is deterministic. `--schema <url|path>` can be used as a universal input alias for `--url` or `--file`. Options for remote fetches: `--header 'Name: value'` (repeatable), `SP_API_TOKEN` (sent as a bearer token), `--tenant <id>` (with `--tenant-header <name>`, default `X-Tenant-ID`) and `--timeout <seconds>` (default 30). Credentials in the URL itself are refused. Exit codes: 0 ok, 1 usage, 2 failure (including a timeout); errors never print tokens or headers. Private docs answer 404 to any token, so use `--file` or `--schema <path>`. The backend marks only non-nullable columns as `required` and emits no `nullable` flag, so every other column is typed `name?: T | null` (safe, if sometimes wider than the column), `id` is always present on rows, JSON columns are `unknown`, and computed attributes are not in the schema (add them to your type and list them in `select`). A table name missing from `Tables` falls back to `Table<unknown>` rather than failing to compile, and the modules (`bulk` etc.) type writes with the read type. See [src/docs/README.md](src/docs/README.md).
 
 ## Backend compatibility
 

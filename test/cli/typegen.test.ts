@@ -369,6 +369,8 @@ describe('main (CLI)', () => {
     [['typegen', '--out', 'x.ts']],
     [['typegen', '--file', 'a.json']],
     [['typegen', '--file', 'a.json', '--url', 'https://h/x', '--out', 'x.ts']],
+    [['typegen', '--schema', 'a.json', '--url', 'https://h/x', '--out', 'x.ts']],
+    [['typegen', '--schema', 'a.json', '--file', 'b.json', '--out', 'x.ts']],
     [['typegen', '--file', 'a.json', '--out']],
     [['typegen', '--file', 'a.json', '--out', 'x.ts', '--bogus']],
     [['typegen', '--url', 'https://h/x', '--out', 'x.ts', '--header', 'no-colon-SECRET']],
@@ -400,6 +402,29 @@ describe('main (CLI)', () => {
     expect(seen[0]?.headers.get('Accept')).toBe('application/json');
     expect(readFileSync(out, 'utf8')).toBe(generateTypes(sample()));
     expect(stdout + stderr).not.toContain('SECRET');
+  });
+
+  it('--schema with local file works offline (exit 0)', async () => {
+    const noFetch = (async () => {
+      throw new Error('must not fetch');
+    }) as typeof fetch;
+    const code = await main(['typegen', '--schema', FIXTURE, '--out', out], io({ fetch: noFetch }));
+    expect(code).toBe(0);
+    expect(readFileSync(out, 'utf8')).toBe(generateTypes(sample()));
+    expect(stdout).toContain('3 tables');
+    expect(stderr).toBe('');
+  });
+
+  it('--schema with http/https URL routes to remote fetch (exit 0)', async () => {
+    const seen: { url: string }[] = [];
+    const fetchFn = (async (u: string | URL) => {
+      seen.push({ url: String(u) });
+      return new Response(readFileSync(FIXTURE, 'utf8'), { status: 200 });
+    }) as typeof fetch;
+    const code = await main(['typegen', '--schema', 'https://host.test/api/v2/docs/openapi.json', '--out', out], io({ fetch: fetchFn }));
+    expect(code).toBe(0);
+    expect(seen[0]?.url).toBe('https://host.test/api/v2/docs/openapi.json');
+    expect(readFileSync(out, 'utf8')).toBe(generateTypes(sample()));
   });
 
   it('an explicit --header Authorization wins over SP_API_TOKEN; --tenant-header renames the tenant header', async () => {

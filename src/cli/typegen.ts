@@ -43,6 +43,7 @@ Options:
   --url <url>             Fetch the document, e.g. https://host/api/v2/docs/openapi.json
   --file <path>           Read a local JSON export instead (works offline; use it when the
                           docs are private: php artisan sp-laravel-api:export-openapi)
+  --schema <url|path>     Path or URL to the OpenAPI document (alias for --url or --file)
   --out <path>            File to write (overwritten only after generation succeeded)
   --header 'Name: value'  Extra request header for --url (repeatable); put credentials
                           here or in SP_API_TOKEN, never in the URL
@@ -64,6 +65,7 @@ interface Args {
   help: boolean;
   url?: string;
   file?: string;
+  schema?: string;
   out?: string;
   headers: Array<[string, string]>;
   tenant?: string;
@@ -71,7 +73,7 @@ interface Args {
   timeoutMs: number;
 }
 
-const VALUE_FLAGS = new Set(['--url', '--file', '--out', '--header', '--tenant', '--tenant-header', '--timeout']);
+const VALUE_FLAGS = new Set(['--url', '--file', '--schema', '--out', '--header', '--tenant', '--tenant-header', '--timeout']);
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 function parse(argv: string[]): Args {
@@ -98,6 +100,9 @@ function parse(argv: string[]): Args {
       case '--file':
         args.file = value;
         break;
+      case '--schema':
+        args.schema = value;
+        break;
       case '--out':
         args.out = value;
         break;
@@ -121,6 +126,16 @@ function parse(argv: string[]): Args {
         args.headers.push([name, value.slice(colon + 1).trim()]);
         break;
       }
+    }
+  }
+  if (args.schema !== undefined) {
+    if (args.url !== undefined || args.file !== undefined) {
+      throw new UsageError('cannot combine --schema with --url or --file');
+    }
+    if (args.schema.startsWith('http://') || args.schema.startsWith('https://')) {
+      args.url = args.schema;
+    } else {
+      args.file = args.schema;
     }
   }
   if ((args.url === undefined) === (args.file === undefined)) throw new UsageError('give exactly one of --url or --file');

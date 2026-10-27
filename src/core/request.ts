@@ -14,6 +14,22 @@ export interface ApiAuth {
   handleUnauthorized?(failed?: { headers: Record<string, string> }): Promise<boolean>;
 }
 
+/** Configuration for automatic transient request retries. */
+export interface RetryConfig {
+  /** Maximum number of retry attempts. 0 or undefined means disabled. Default: 0 */
+  maxAttempts?: number;
+  /** HTTP status codes that trigger a retry. Default: [408, 429, 502, 503, 504] */
+  statusCodes?: number[];
+  /** Whether to retry on fetch network errors and timeouts. Default: true */
+  networkErrors?: boolean;
+  /** Base backoff duration in milliseconds. Default: 300 */
+  backoffMs?: number;
+  /** Maximum backoff duration in milliseconds. Default: 5000 */
+  maxBackoffMs?: number;
+  /** Whether to add random jitter to backoff delay. Default: true */
+  jitter?: boolean;
+}
+
 /** Shared configuration for every request a client makes. */
 export interface ApiConfig {
   baseUrl: string;
@@ -32,11 +48,13 @@ export interface ApiConfig {
   quoting?: boolean;
   driver?: 'pgsql' | 'mysql';
   debug?: boolean;
+  /** Automatic retry policy for transient failures. Disabled by default. */
+  retry?: RetryConfig;
 }
 
 /** One HTTP call. */
 export interface RequestOptions {
-  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  method: 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   /** Already-encoded path relative to `baseUrl`. */
   path: string;
   query?: Query | URLSearchParams;
@@ -54,6 +72,13 @@ export interface RequestOptions {
    * errors are handled as usual.
    */
   responseType?: 'json' | 'text';
+  /**
+   * Per-call retry override:
+   * - `false`: disable retry for this call
+   * - `true`: enable retry using client's default policy, even on non-idempotent methods
+   * - `RetryConfig`: custom retry options for this call
+   */
+  retry?: boolean | RetryConfig;
 }
 
 /** Unwrapped result of a successful call. */
@@ -116,6 +141,47 @@ function isRawBody(b: unknown): boolean {
   );
 }
 
+const DEFAULT_RETRY_STATUSES = [408, 429, 502, 503, 504];
+
+function calculateRetryDelay(
+  attempt: number,
+  cfg: RetryConfig,
+  retryAfterHeader?: string | null,
+): number {
+  if (retryAfterHeader) {
+    const seconds = Number(retryAfterHeader);
+    if (!Number.isNaN(seconds) && seconds > 0) {
+      return Math.min(seconds * 1000, 30000);
+    }
+    const date = Date.parse(retryAfterHeader);
+    if (!Number.isNaN(date)) {
+      const diff = date - Date.now();
+      if (diff > 0) return Math.min(diff, 30000);
+    }
+  }
+  const base = cfg.backoffMs ?? 300;
+  const max = cfg.maxBackoffMs ?? 5000;
+  const exponential = Math.min(max, base * 2 ** attempt);
+  if (cfg.jitter === false) return exponential;
+  return Math.floor(exponential * (0.5 + Math.random() * 0.5));
+}
+
+function delayWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const onAbort = (): void => {
+      clearTimeout(timer);
+      reject(signal?.reason);
+    };
+    timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 /** Creates the request function used by every module: auth, tenant, timeout, envelope unwrapping, errors. */
 export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promise<ApiResult<T>> {
   const base = cfg.baseUrl.replace(/\/+$/, '');
@@ -147,6 +213,22 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
 
     const requestId = globalThis.crypto.randomUUID();
     const timeoutMs = o.timeoutMs ?? cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+
+    const isIdempotent = o.method === 'GET' || o.method === 'HEAD';
+    const retryEnabled =
+      o.retry === false
+        ? false
+        : o.retry === true || typeof o.retry === 'object' || (isIdempotent && (cfg.retry?.maxAttempts ?? 0) > 0);
+    const retryCfg: RetryConfig = {
+      maxAttempts: typeof o.retry === 'object' ? o.retry.maxAttempts : cfg.retry?.maxAttempts ?? 0,
+      statusCodes: (typeof o.retry === 'object' ? o.retry.statusCodes : cfg.retry?.statusCodes) ?? DEFAULT_RETRY_STATUSES,
+      networkErrors: (typeof o.retry === 'object' ? o.retry.networkErrors : cfg.retry?.networkErrors) ?? true,
+      backoffMs: (typeof o.retry === 'object' ? o.retry.backoffMs : cfg.retry?.backoffMs) ?? 300,
+      maxBackoffMs: (typeof o.retry === 'object' ? o.retry.maxBackoffMs : cfg.retry?.maxBackoffMs) ?? 5000,
+      jitter: (typeof o.retry === 'object' ? o.retry.jitter : cfg.retry?.jitter) ?? true,
+    };
+    const maxRetryAttempts = retryEnabled ? (retryCfg.maxAttempts ?? 0) : 0;
+    let retryCount = 0;
 
     for (let attempt = 0; ; attempt++) {
       if (isAborted(o.signal)) throw o.signal?.reason;
@@ -189,7 +271,14 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
         }
       } catch (e) {
         if (isAborted(o.signal)) throw e;
-        throw transportError(timedOut ? 'timeout' : 'network', e, o.module);
+        const err = transportError(timedOut ? 'timeout' : 'network', e, o.module);
+        if (retryEnabled && retryCount < maxRetryAttempts && retryCfg.networkErrors !== false) {
+          retryCount++;
+          const delay = calculateRetryDelay(retryCount - 1, retryCfg);
+          await delayWithSignal(delay, o.signal);
+          continue;
+        }
+        throw err;
       } finally {
         clearTimeout(timer);
         o.signal?.removeEventListener('abort', onAbort);
@@ -205,6 +294,17 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
             if (isAborted(o.signal)) throw o.signal?.reason;
             continue;
           }
+        }
+        if (
+          retryEnabled &&
+          retryCount < maxRetryAttempts &&
+          retryCfg.statusCodes?.includes(failure.status)
+        ) {
+          retryCount++;
+          const retryAfter = res.headers.get('retry-after');
+          const delay = calculateRetryDelay(retryCount - 1, retryCfg, retryAfter);
+          await delayWithSignal(delay, o.signal);
+          continue;
         }
         throw failure;
       }

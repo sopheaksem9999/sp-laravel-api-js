@@ -26,6 +26,8 @@ export type {
   Where,
 } from './core/query-types';
 export { createRequester } from './core/request';
-export type { ApiAuth, ApiConfig, ApiResult, RequestOptions } from './core/request';
+export type { ApiAuth, ApiConfig, ApiResult, RequestOptions, RetryConfig } from './core/request';
+export { buildPage, createCursorPagination } from './core/page';
+export type { CursorPagination, CursorPaginationOptions } from './core/page';
 export { makeTable } from './core/table';
 export type { CallOptions, Page, RestoreResult, Table, TableCore } from './core/table';
