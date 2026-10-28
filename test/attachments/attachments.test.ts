@@ -427,6 +427,34 @@ describe('viewBytes / viewBlob', () => {
   });
 });
 
+describe('degenerate path segments', () => {
+  for (const bad of ['..', '.', '']) {
+    it(`rejects id ${JSON.stringify(bad)} without sending a request`, async () => {
+      const { att, calls } = setup(() => json({ id: 1 }));
+      const label = (f: () => unknown) => {
+        try {
+          f();
+        } catch (e) {
+          return (e as SpApiError).code;
+        }
+        return 'no throw';
+      };
+      expect(label(() => att.viewUrl(bad))).toBe('unencodable_value');
+      expect(label(() => att.downloadUrl(bad))).toBe('unencodable_value');
+      await expect(att.viewBytes(bad)).rejects.toMatchObject({ code: 'unencodable_value' });
+      await expect(att.viewBlob(bad)).rejects.toMatchObject({ code: 'unencodable_value' });
+      await expect(att.forRecord('invoices', 1).unlink(bad)).rejects.toMatchObject({ code: 'unencodable_value' });
+      expect(label(() => att.forRecord('invoices', bad))).toBe('unencodable_value');
+      expect(calls).toHaveLength(0);
+    });
+  }
+
+  it('still encodes normal ids', () => {
+    const { att } = setup();
+    expect(att.viewUrl('a b/c')).toBe('https://host.test/api/sp_attachments/rpc/a%20b%2Fc/view');
+  });
+});
+
 describe('form upload re-send', () => {
   const content = 'x'.repeat(5000);
   const fileText = async (s: Seen): Promise<string> => {
@@ -444,7 +472,7 @@ describe('form upload re-send', () => {
     expect(await fileText(calls[1]!)).toBe(content);
   });
 
-  it('re-sends full content after a 503 retry', async () => {
+  it('requester re-sends a FormData with full content after a 503 retry (api.request retry:true; upload() itself never retries a POST)', async () => {
     const { api, calls } = setup((_s, n) => (n === 0 ? fail(503) : json({ id: 1 })), {
       retry: { maxAttempts: 1, backoffMs: 1, jitter: false },
     });

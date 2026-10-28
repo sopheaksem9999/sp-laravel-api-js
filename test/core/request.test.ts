@@ -513,3 +513,35 @@ describe('createRequester 200 success:false', () => {
     expect(fake).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('createRequester binary responseType', () => {
+  for (const rt of ['blob', 'arrayBuffer'] as const) {
+    const bytes = async (d: unknown): Promise<string> =>
+      new TextDecoder().decode(d instanceof Blob ? new Uint8Array(await d.arrayBuffer()) : new Uint8Array(d as ArrayBuffer));
+
+    it(`${rt}: a 10002-looking 200 body is returned untouched and no refresh runs`, async () => {
+      const handleUnauthorized = vi.fn(async () => true);
+      const body = '{"success":false,"error_code":10002}';
+      const { request, fake } = setup([new Response(body, { status: 200 })], {
+        auth: { getHeaders: async () => ({}), handleUnauthorized },
+      });
+      const r = await request<unknown>({ method: 'GET', path: 'x', responseType: rt });
+      expect(await bytes(r.data)).toBe(body);
+      expect(handleUnauthorized).not.toHaveBeenCalled();
+      expect(fake).toHaveBeenCalledTimes(1);
+    });
+
+    it(`${rt}: {"success":false} bytes are returned untouched`, async () => {
+      const { request } = setup([new Response('{"success":false}', { status: 200 })]);
+      const r = await request<unknown>({ method: 'GET', path: 'x', responseType: rt });
+      expect(await bytes(r.data)).toBe('{"success":false}');
+    });
+
+    it(`${rt}: a non-2xx still raises SpApiError`, async () => {
+      const { request } = setup([json({ success: false, message: 'gone' }, 404)]);
+      const e = await request({ method: 'GET', path: 'x', responseType: rt }).catch((x: unknown) => x);
+      expect(e).toBeInstanceOf(SpApiError);
+      expect((e as SpApiError).status).toBe(404);
+    });
+  }
+});

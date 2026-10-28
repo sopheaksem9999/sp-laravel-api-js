@@ -1,5 +1,6 @@
 import type { Api } from '../core/create-api';
 import { SpApiError } from '../core/errors';
+import { pathSegment } from '../core/fn';
 import { buildPage } from '../core/page';
 import type { Page } from '../core/page';
 import type { Query, Where } from '../core/query-types';
@@ -194,7 +195,8 @@ export interface Attachments {
   folders: AttachmentFolders;
 }
 
-const seg = (s: string | number): string => encodeURIComponent(String(s));
+/** Core `pathSegment`: encodes, and rejects `''`, `.` and `..` (`unencodable_value`) so no request goes to a normalised route. */
+const seg = pathSegment;
 
 const bad = (message: string): SpApiError => new SpApiError({ status: 0, code: 'unencodable_value', message, module: MODULE });
 
