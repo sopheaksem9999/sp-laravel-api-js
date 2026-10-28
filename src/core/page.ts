@@ -1,3 +1,4 @@
+import { SpApiError } from './errors';
 import type { LogOption } from './log-types';
 import type { Query } from './query-types';
 
@@ -31,8 +32,10 @@ export function buildPage<T>(
 
 /** Options for cursor pagination boundary operations. */
 export interface CursorPaginationOptions {
-  query?: Omit<Query, 'cursor' | 'page'>;
+  query?: Omit<Query, 'cursor' | 'page' | 'direction'>;
   perPage?: number;
+  /** Column the cursor pages on (`cursor_column`); wins over `query.cursorColumn`. Host default: the sorted column. */
+  cursorColumn?: string;
   signal?: AbortSignal;
   headers?: Record<string, string>;
   timeoutMs?: number;
@@ -46,12 +49,14 @@ export interface CursorPagination<T> {
   firstPage(): Promise<Page<T>>;
   /**
    * Fetches the last page of rows by reversing the query's sort direction,
-   * then restoring the returned rows back to canonical order.
+   * then restoring the returned rows back to canonical order. Needs `query.sort`: the host's default sort depends
+   * on the table (`created_at` when it has one, else the primary key), which the client cannot know, so without
+   * a sort it throws `SpApiError` `unencodable_value` and sends no request. A short or empty last page has `prev: null`.
    */
   lastPage(): Promise<Page<T>>;
   /** Fetches the next page from a cursor string or a Page object. Returns null if cursor is absent. */
   nextPage(cursorOrPage: string | { next: string | null }): Promise<Page<T> | null>;
-  /** Fetches the previous page from a cursor string or a Page object. Returns null if cursor is absent. */
+  /** Fetches the previous page (sent with `direction=prev`) from a cursor string or a Page object. Returns null if cursor is absent. */
   prevPage(cursorOrPage: string | { prev: string | null }): Promise<Page<T> | null>;
 }
 
@@ -63,7 +68,14 @@ export function createCursorPagination<T>(
   table: { list(q?: Query, o?: { signal?: AbortSignal; headers?: Record<string, string>; timeoutMs?: number; log?: LogOption }): Promise<Page<T>> },
   options?: CursorPaginationOptions,
 ): CursorPagination<T> {
-  const { query: baseQuery = {}, perPage, signal, headers, timeoutMs, log } = options ?? {};
+  const { query: rawQuery = {}, perPage, cursorColumn, signal, headers, timeoutMs, log } = options ?? {};
+  // `direction` is owned by the controller (untyped callers could still pass it); `cursorColumn` option wins.
+  const rest: Query = { ...(rawQuery as Query) };
+  delete rest.direction;
+  const baseQuery: Omit<Query, 'cursor' | 'page' | 'direction'> = {
+    ...rest,
+    ...(cursorColumn !== undefined ? { cursorColumn } : {}),
+  };
   const callOpts = { signal, headers, timeoutMs, log };
 
   return {
@@ -79,8 +91,17 @@ export function createCursorPagination<T>(
     },
 
     async lastPage(): Promise<Page<T>> {
-      const currentSort = baseQuery.sort ?? { by: 'id', order: 'asc' };
-      const reversedOrder: 'asc' | 'desc' = (currentSort.order ?? 'asc') === 'desc' ? 'asc' : 'desc';
+      const currentSort = baseQuery.sort;
+      if (currentSort === undefined || currentSort === null || typeof currentSort !== 'object' || typeof currentSort.by !== 'string') {
+        throw new SpApiError({
+          status: 0,
+          code: 'unencodable_value',
+          message:
+            'lastPage() needs a `sort` ({ by, order? }) in the query: the host default sort depends on the table, so the last page cannot be derived without it',
+        });
+      }
+      // An omitted `order` is `desc` on the host.
+      const reversedOrder: 'asc' | 'desc' = (currentSort.order ?? 'desc') === 'desc' ? 'asc' : 'desc';
       const reversedSort = { by: currentSort.by, order: reversedOrder };
 
       const page = await table.list(
@@ -93,10 +114,12 @@ export function createCursorPagination<T>(
         callOpts,
       );
 
+      // A short or empty page is the whole result: there is nothing before it.
+      const short = page.data.length === 0 || (perPage !== undefined && page.data.length < perPage);
       return {
         data: [...page.data].reverse(),
         next: null,
-        prev: page.next,
+        prev: short ? null : page.next,
         total: page.total,
         meta: page.meta,
       };
@@ -122,6 +145,7 @@ export function createCursorPagination<T>(
         {
           ...baseQuery,
           cursor,
+          direction: 'prev',
           ...(perPage !== undefined ? { perPage } : {}),
         },
         callOpts,

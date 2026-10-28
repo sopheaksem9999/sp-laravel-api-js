@@ -71,8 +71,8 @@ describe('createCursorPagination', () => {
       },
     };
 
-    // Case 1: Default sort (implied id asc -> reversed to id desc)
-    const pagination = createCursorPagination(mockTable, { perPage: 3 });
+    // Case 1: explicit sort asc -> reversed to desc
+    const pagination = createCursorPagination(mockTable, { perPage: 3, query: { sort: { by: 'id', order: 'asc' } } });
     const lastPage = await pagination.lastPage();
 
     expect(calls[0]?.sort).toEqual({ by: 'id', order: 'desc' });
@@ -112,9 +112,12 @@ describe('createCursorPagination', () => {
     await pagination.nextPage({ next: 'cur_page_3' });
     expect(calls[1]?.cursor).toBe('cur_page_3');
 
-    // Passing Page object with prev
+    // Passing Page object with prev: read backwards from the cursor
     await pagination.prevPage({ prev: 'cur_page_1' });
     expect(calls[2]?.cursor).toBe('cur_page_1');
+    expect(calls[2]?.direction).toBe('prev');
+    expect(calls[0]?.direction).toBeUndefined();
+    expect(calls[1]?.direction).toBeUndefined();
 
     // Passing missing/null cursor returns null without calling table.list
     const nullNext = await pagination.nextPage({ next: null });
@@ -138,5 +141,85 @@ describe('createCursorPagination', () => {
     const first = await pagination.firstPage();
     expect(first.data).toEqual([{ id: 1 }]);
     expect(first.next).toBe('cur_2');
+  });
+
+  describe('cursor direction, cursorColumn and lastPage edge cases', () => {
+    function recorder(page: Partial<Page<{ id: number }>> = {}) {
+      const calls: Query[] = [];
+      const table = {
+        async list(q: Query = {}): Promise<Page<{ id: number }>> {
+          calls.push(q);
+          return { data: [], next: null, prev: null, total: null, meta: {}, ...page };
+        },
+      };
+      return { calls, table };
+    }
+
+    it('prevPage sends direction prev and keeps the sort and cursorColumn; nextPage never does', async () => {
+      const { calls, table } = recorder();
+      const cp = createCursorPagination(table, {
+        perPage: 5,
+        cursorColumn: 'created_at',
+        query: { sort: { by: 'created_at', order: 'desc' } },
+      });
+      await cp.prevPage('p1');
+      await cp.nextPage('n1');
+      expect(calls[0]).toEqual({ sort: { by: 'created_at', order: 'desc' }, cursorColumn: 'created_at', cursor: 'p1', direction: 'prev', perPage: 5 });
+      expect(calls[1]?.direction).toBeUndefined();
+      expect(calls[1]?.cursorColumn).toBe('created_at');
+    });
+
+    it('a caller-supplied direction never leaks into any request', async () => {
+      const { calls, table } = recorder();
+      const cp = createCursorPagination(table, { query: { direction: 'prev', sort: { by: 'id' } } as never });
+      await cp.firstPage();
+      await cp.nextPage('n1');
+      await cp.lastPage();
+      expect(calls.map((c) => c.direction)).toEqual([undefined, undefined, undefined]);
+    });
+
+    it('prevPage with a null or empty cursor sends nothing', async () => {
+      const { calls, table } = recorder();
+      const cp = createCursorPagination(table);
+      expect(await cp.prevPage({ prev: null })).toBeNull();
+      expect(await cp.prevPage('')).toBeNull();
+      expect(calls).toHaveLength(0);
+    });
+
+    it('lastPage on a single short page has no prev, even when the host returns a cursor', async () => {
+      const { table } = recorder({ data: [{ id: 2 }, { id: 1 }], next: 'would_go_back' });
+      const cp = createCursorPagination(table, { perPage: 5, query: { sort: { by: 'id', order: 'asc' } } });
+      const page = await cp.lastPage();
+      expect(page.data.map((r) => r.id)).toEqual([1, 2]);
+      expect(page.prev).toBeNull();
+      expect(page.next).toBeNull();
+    });
+
+    it('lastPage on an empty result has no prev and no rows', async () => {
+      const { table } = recorder({ next: 'stray' });
+      const cp = createCursorPagination(table, { perPage: 5, query: { sort: { by: 'id', order: 'asc' } } });
+      const page = await cp.lastPage();
+      expect(page.data).toEqual([]);
+      expect(page.prev).toBeNull();
+    });
+
+    it('lastPage on a full page keeps the cursor to go back', async () => {
+      const { table } = recorder({ data: [{ id: 3 }, { id: 2 }], next: 'back' });
+      const cp = createCursorPagination(table, { perPage: 2, query: { sort: { by: 'id', order: 'asc' } } });
+      expect((await cp.lastPage()).prev).toBe('back');
+    });
+
+    it('lastPage without a sort throws unencodable_value and sends no request', async () => {
+      const { calls, table } = recorder();
+      const cp = createCursorPagination(table, { perPage: 5 });
+      await expect(cp.lastPage()).rejects.toMatchObject({ code: 'unencodable_value', message: expect.stringContaining('lastPage()') });
+      expect(calls).toHaveLength(0);
+    });
+
+    it('lastPage treats an omitted order as the host default (desc) and reverses it to asc', async () => {
+      const { calls, table } = recorder();
+      await createCursorPagination(table, { query: { sort: { by: 'created_at' } } }).lastPage();
+      expect(calls[0]?.sort).toEqual({ by: 'created_at', order: 'asc' });
+    });
   });
 });

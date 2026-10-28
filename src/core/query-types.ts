@@ -93,6 +93,10 @@ export interface Query {
   sort?: { by: string; order?: 'asc' | 'desc' };
   /** `undefined` = offset mode; `null`/`''` = first cursor page; string = continue. */
   cursor?: string | null;
+  /** Cursor paging direction: `'prev'` reads the rows before `cursor` (sent as `direction=`). Default on the host: `'next'`. */
+  direction?: 'next' | 'prev';
+  /** Column the cursor pages on (sent as `cursor_column=`). Default on the host: the sorted column. */
+  cursorColumn?: string;
   page?: number;
   perPage?: number;
   total?: boolean;

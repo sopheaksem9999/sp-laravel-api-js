@@ -24,6 +24,14 @@ function unencodable(message: string): SpApiError {
   return new SpApiError({ status: 0, code: 'unencodable_value', message });
 }
 
+/** A column name sent as a bare query value (aggregate columns, `cursor_column`): non-empty, no `, : ( )` or whitespace. */
+function checkColumn(col: unknown, what: string): string {
+  if (typeof col !== 'string' || col === '' || /[,:()\s]/.test(col)) {
+    throw unencodable(`${what} ${JSON.stringify(col)} cannot be sent`);
+  }
+  return col;
+}
+
 /** Formats one value for the wire, quoting (or throwing) when it holds reserved characters. */
 function formatValue(v: Scalar, quoting: boolean): string {
   if (v === null) return 'null';
@@ -196,7 +204,7 @@ function formatAggregate(spec: AggregateSpec): string {
       continue;
     }
     for (const col of v) {
-      if (/[,:()\s]/.test(col) || col === '') throw unencodable(`Aggregate column ${JSON.stringify(col)} cannot be sent`);
+      checkColumn(col, 'Aggregate column');
       out.push(`${fn}:${col}`);
     }
   }
@@ -274,6 +282,12 @@ export function serializeQuery(q: Query, opts: SerializeOptions): URLSearchParam
 
   if (q.cursor !== undefined) p.set('cursor', q.cursor === null || q.cursor === '' ? '0' : q.cursor);
   else if (q.page !== undefined) p.set('page', String(q.page));
+
+  if (q.direction !== undefined) {
+    if (q.direction !== 'next' && q.direction !== 'prev') throw unencodable('"direction" must be "next" or "prev"');
+    p.set('direction', q.direction);
+  }
+  if (q.cursorColumn !== undefined) p.set('cursor_column', checkColumn(q.cursorColumn, '"cursorColumn"'));
 
   p.set('per_page', String(q.perPage ?? opts.defaults?.perPage ?? FALLBACK_PER_PAGE));
 

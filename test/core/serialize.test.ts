@@ -18,6 +18,35 @@ describe('serializeQuery', () => {
     expect(q({}).has('cursor')).toBe(false);
   });
 
+  it('sends direction and cursor_column with the cursor', () => {
+    const p = q({ cursor: 'c1', direction: 'prev', cursorColumn: 'created_at' });
+    expect(p.get('cursor')).toBe('c1');
+    expect(p.get('direction')).toBe('prev');
+    expect(p.get('cursor_column')).toBe('created_at');
+    expect(q({ cursor: 'c1', direction: 'next' }).get('direction')).toBe('next');
+    expect(q({ cursor: null }).has('direction')).toBe(false);
+    expect(q({ cursor: null }).has('cursor_column')).toBe(false);
+    expect([...q({ cursor: 'c1', direction: 'prev', cursorColumn: 'created_at' }).keys()].slice(0, 3)).toEqual(['cursor', 'direction', 'cursor_column']);
+  });
+
+  it('validates direction and cursorColumn', () => {
+    const code = (query: unknown): unknown => {
+      try {
+        q(query as Query);
+      } catch (e) {
+        return (e as SpApiError).code;
+      }
+      return undefined;
+    };
+    expect(code({ cursor: 'c', direction: 'up' })).toBe('unencodable_value');
+    expect(code({ cursor: 'c', direction: 'PREV' })).toBe('unencodable_value');
+    expect(code({ cursor: 'c', cursorColumn: '' })).toBe('unencodable_value');
+    expect(code({ cursor: 'c', cursorColumn: 'a,b' })).toBe('unencodable_value');
+    expect(code({ cursor: 'c', cursorColumn: 'a b' })).toBe('unencodable_value');
+    expect(code({ cursor: 'c', cursorColumn: 'f(x)' })).toBe('unencodable_value');
+    expect(code({ cursor: 'c', cursorColumn: 5 })).toBe('unencodable_value');
+  });
+
   it('sends page', () => {
     expect(q({ page: 2 }).get('page')).toBe('2');
   });

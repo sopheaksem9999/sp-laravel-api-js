@@ -500,7 +500,7 @@ describe('request logging, hardening', () => {
 
   it('cursorPagination forwards the log option to every list call', async () => {
     const { api, entries, calls } = rig([() => json({ success: true, data: [{ id: 1 }], meta: { next_cursor: 'n1', prev_cursor: 'p1' } })], { logMode: 'perRequest' });
-    const cp = api.table('invoices').cursorPagination({ perPage: 1, log: true });
+    const cp = api.table('invoices').cursorPagination({ perPage: 1, log: true, query: { sort: { by: 'id', order: 'asc' } } });
     const first = await cp.firstPage();
     await cp.lastPage();
     await cp.nextPage(first);
