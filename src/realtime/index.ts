@@ -151,7 +151,7 @@ export interface SubscribeTenantOptions {
   onChange: (change: RealtimeChange) => unknown;
   /** Called for payloads that are not valid record events (see `RealtimeHandlerOptions.onUnhandled`). */
   onUnhandled?: (e: RealtimeUnhandled) => unknown;
-  /** Custom Echo event names to bind as-is (include the leading dot if Echo needs it). Delivered to `onUnhandled` with the name. */
+  /** Custom Echo event names to bind as-is (include the leading dot if Echo needs it). A record-shaped payload goes to `onChange`; other payloads go to `onUnhandled` with the name. */
   events?: readonly string[];
 }
 

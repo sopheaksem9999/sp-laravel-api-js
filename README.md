@@ -74,7 +74,7 @@ for await (const row of invoices.iterate({ where: { status: 'open' }, perPage: 1
 | `timeoutMs` | `60000` | per-request timeout (`timeout` error); per call `timeoutMs` overrides it. `0`, a negative number, `Infinity` or anything above 2^31-1 means no timeout |
 | `quoting` | `true` | `false` for hosts older than 0.5.06: values that need quotes throw `unencodable_value` instead |
 | `driver` | none | `'mysql'` rejects the Postgres-only operators client-side (`unencodable_value`) |
-| `debug` | `false` | sends `X-Debug: 1` on every request (per call: `debug: true`) |
+| `debug` | `false` | sends `X-Debug: 1` on every request (per call on `api.request`: `debug: true`) |
 | `retry` | off | automatic retry of transient failures, see [Retries](#retries) |
 | `treatSuccessFalseAsError` | `true` | a 2xx response whose JSON body is `{ success: false }` is thrown as `SpApiError`; `false` returns that body as `data` (see [Error handling](#error-handling)) |
 | `onEvent` | none | diagnostics hook. **Only the `realtime` module emits anything** (`{ type: 'realtime_handler_error' }` when your `onChange` throws); the core and the other modules never call it, so it is not a request log |
@@ -216,7 +216,7 @@ await api.request({ method: 'GET', path: 'invoices', retry: false });
 - The client-level policy retries `GET` and `HEAD` only. A write is retried only when that call asks for it with `retry: true` (client policy) or `retry: { maxAttempts }`, so make sure the endpoint is safe to repeat.
 - A per-call `retry` object does not merge with the client policy: unset fields take the defaults above (including `maxAttempts: 0`).
 - `retry` is an `api.request` option; table methods, `rpc` and `fn` use the client policy (and only for `GET`/`HEAD`).
-- A `Retry-After` header on the failed response (seconds or an HTTP date) replaces the backoff delay, capped at 30 s. A caller abort is never retried and also cancels the wait.
+- A `Retry-After` header on the failed response (seconds or an HTTP date) replaces the backoff delay, capped at 30 s, when it is a positive number of seconds or a date in the future; `0`, an unparsable value or a past date falls back to the normal backoff. A caller abort is never retried and also cancels the wait.
 - A 2xx `{ success: false }` envelope error is never retried (its status is not in the list). The 401 refresh (`handleUnauthorized`) is separate and does not use up a retry; it runs once per call.
 
 ## Per-request options
