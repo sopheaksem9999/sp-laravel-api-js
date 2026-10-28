@@ -4,6 +4,9 @@ const REDACTED = '<redacted>';
 const MAX_BODY = 2048;
 const MARKER = '…[truncated]';
 const MAX_ID = 128;
+/** Deepest nesting of arrays/objects a body may have; a deeper body is logged as `<unavailable>` as a whole. */
+const MAX_DEPTH = 100;
+const UNAVAILABLE = '<unavailable>';
 
 const SENSITIVE_HEADERS = new Set(['authorization', 'cookie', 'set-cookie', 'x-csrf-token']);
 const SENSITIVE_HEADER_RE = /auth|token|key|secret|cookie|session|csrf|xsrf|password|credential|signature|pass|otp|jwt|bearer/i;
@@ -30,7 +33,7 @@ const OPERATORS: ReadonlySet<string> = new Set([
   'ov', 'not_ov', 'sl', 'not_sl', 'sr', 'not_sr', 'nxl', 'not_nxl', 'nxr', 'not_nxr', 'adj', 'not_adj',
 ]);
 /** The column of an embed filter inside `select` (`rel(cols,col=op.value)`): the text before `=` after the start, a `(` or a `,`. */
-const EMBED_COLUMN = /(?:^|[(,])\s*([^(),=]+)=/g;
+const EMBED_COLUMN = /(?:^|[(,])([^(),=]*)=/g;
 
 /** Lower-cased, `-` and `_` removed: equals a listed key, matches the sensitive suffix, or starts with password. */
 export function isSensitiveKey(k: string): boolean {
@@ -41,7 +44,8 @@ export function isSensitiveKey(k: string): boolean {
 /** `Link` holds URLs in `<...>`; `Refresh` holds one after `url=` (or is one); other URL-valued headers are a URL. */
 function redactHeaderValue(n: string, v: string): string {
   if (URL_HEADERS.has(n)) return redactUrl(v);
-  if (n === 'link') return v.replace(/<([^>]*)>/g, (_m, u: string) => `<${redactUrl(u)}>`);
+  // `[^<>]`, not `[^>]`: with many `<` and no `>` the latter rescans to the end from every `<` (quadratic).
+  if (n === 'link') return v.replace(/<([^<>]*)>/g, (_m, u: string) => `<${redactUrl(u)}>`);
   if (n === 'refresh') {
     const m = /url\s*=\s*/i.exec(v);
     return m === null ? redactUrl(v) : v.slice(0, m.index + m[0].length) + redactUrl(v.slice(m.index + m[0].length));
@@ -70,8 +74,25 @@ function decode(s: string): string {
   }
 }
 
-/** Removes leading and trailing `\s` (the same characters in JS and Dart regular expressions). */
-const strip = (s: string): string => s.replace(/^\s+|\s+$/g, '');
+/**
+ * The ECMAScript `\s` class (also Dart's) as code units: TAB to CR, space, U+00A0, U+1680, U+2000-U+200A, U+2028,
+ * U+2029, U+202F, U+205F, U+3000, U+FEFF. A test checks it against `/\s/` for every BMP code unit.
+ */
+export function isSpace(c: number): boolean {
+  return (
+    (c >= 0x09 && c <= 0x0d) || c === 0x20 || c === 0xa0 || c === 0x1680 || (c >= 0x2000 && c <= 0x200a) ||
+    c === 0x2028 || c === 0x2029 || c === 0x202f || c === 0x205f || c === 0x3000 || c === 0xfeff
+  );
+}
+
+/** Removes leading and trailing `\s` characters with two linear scans (a `\s+$` regex is quadratic on inner runs). */
+function strip(s: string): string {
+  let a = 0;
+  let b = s.length;
+  while (a < b && isSpace(s.charCodeAt(a))) a++;
+  while (b > a && isSpace(s.charCodeAt(b - 1))) b--;
+  return a === 0 && b === s.length ? s : s.slice(a, b);
+}
 
 /** Whether any (trimmed) segment of a column path (`sessions.pin`) is a sensitive key. */
 function isSensitivePath(segments: string[]): boolean {
@@ -87,7 +108,7 @@ function isSensitivePath(segments: string[]): boolean {
  */
 function isSensitiveQueryKey(rawKey: string): boolean {
   const key = decode(rawKey);
-  return isSensitiveKey(key) || isSensitivePath(key.split(/\s*[[\],.]\s*/));
+  return isSensitiveKey(key) || isSensitivePath(key.split(/[[\],.]/));
 }
 
 /**
@@ -96,8 +117,8 @@ function isSensitiveQueryKey(rawKey: string): boolean {
  * without a dot (a list value, a logic word) is not a condition; one without an operator word is tested whole.
  */
 function isSensitiveCondition(item: string): boolean {
+  if (!item.includes('.')) return false;
   const segments = item.split('.').map(strip);
-  if (segments.length < 2) return false;
   const op = segments.findIndex((s) => OPERATORS.has(s));
   return isSensitivePath(op < 0 ? segments : segments.slice(0, op));
 }
@@ -147,11 +168,18 @@ function truncate(s: string, max: number): string {
   return s.slice(0, cut) + MARKER;
 }
 
-function walk(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(walk);
+/** Thrown by `walk` past `MAX_DEPTH` nested containers; `redactBody` then returns `<unavailable>`. */
+class TooDeep {}
+
+function walk(v: unknown, depth: number): unknown {
+  if (Array.isArray(v)) {
+    if (depth >= MAX_DEPTH) throw new TooDeep();
+    return v.map((x) => walk(x, depth + 1));
+  }
   if (typeof v === 'object' && v !== null && Object.prototype.toString.call(v) === '[object Object]') {
+    if (depth >= MAX_DEPTH) throw new TooDeep();
     const out: Record<string, unknown> = {};
-    for (const [k, x] of Object.entries(v)) out[k] = isSensitiveKey(k) ? REDACTED : walk(x);
+    for (const [k, x] of Object.entries(v)) out[k] = isSensitiveKey(k) ? REDACTED : walk(x, depth + 1);
     return out;
   }
   return v;
@@ -160,11 +188,9 @@ function walk(v: unknown): unknown {
 function redactString(s: string): string {
   const t = s.trimStart();
   if (t.startsWith('{') || t.startsWith('[')) {
-    try {
-      return JSON.stringify(walk(JSON.parse(s)));
-    } catch {
-      /* not JSON: fall through */
-    }
+    // Only a parse failure means "not JSON"; a body too deep to walk must not fall through and be echoed.
+    const parsed = parseJson(s);
+    if (parsed !== undefined) return JSON.stringify(walk(parsed, 0));
   }
   return /^[^\s=&]+=[^\s&]*(&[^\s=&]+=[^\s&]*)*$/.test(s) ? redactQuery(s) : s;
 }
@@ -179,19 +205,25 @@ function describeOpaque(v: unknown): string | undefined {
 
 /**
  * Redacts and bounds a body for a log entry. Strings holding JSON are parsed, redacted and re-serialised; objects
- * come back as redacted copies unless their JSON exceeds 2048 characters, in which case a truncated string.
+ * come back as redacted copies unless their JSON exceeds 2048 characters, in which case a truncated string. A body
+ * nested more than 100 arrays/objects deep is `<unavailable>` as a whole. Linear in the size of the body.
  */
 export function redactBody(v: unknown, max: number = MAX_BODY): unknown {
-  const opaque = describeOpaque(v);
-  if (opaque !== undefined) return opaque;
-  if (typeof v === 'string') return truncate(redactString(v), max);
-  if (v instanceof URLSearchParams) return truncate(redactQuery(v.toString()), max);
-  const r = walk(v);
-  if (typeof r === 'object' && r !== null) {
-    const s = JSON.stringify(r);
-    if (s !== undefined && s.length > max) return truncate(s, max);
+  try {
+    const opaque = describeOpaque(v);
+    if (opaque !== undefined) return opaque;
+    if (typeof v === 'string') return truncate(redactString(v), max);
+    if (v instanceof URLSearchParams) return truncate(redactQuery(v.toString()), max);
+    const r = walk(v, 0);
+    if (typeof r === 'object' && r !== null) {
+      const s = JSON.stringify(r);
+      if (s !== undefined && s.length > max) return truncate(s, max);
+    }
+    return r;
+  } catch (e) {
+    if (e instanceof TooDeep) return UNAVAILABLE;
+    throw e;
   }
-  return r;
 }
 
 /** Host-controlled ids are cleaned before they reach a log line: no control or line-separator characters, at most 128 code points. */
@@ -243,7 +275,7 @@ function safely(f: () => unknown): unknown {
   try {
     return f();
   } catch {
-    return '<unavailable>';
+    return UNAVAILABLE;
   }
 }
 

@@ -1,12 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { redactBody, redactHeaders, redactUrl } from '../../src/logging/internal';
+import { isSpace, redactBody, redactHeaders, redactUrl } from '../../src/logging/internal';
 
+type Parts = [string, number][];
 interface Vectors {
   headers: { name: string; input: { headers: Record<string, string>; tenantHeader: string | null }; expected: Record<string, string> }[];
   bodies: { name: string; input: unknown; expected: unknown }[];
   urls: { name: string; input: string; expected: string }[];
+  perf: { name: string; kind: 'url' | 'header' | 'body' | 'bodyJson'; input: { parts: Parts; header?: string }; expected: { parts: Parts }; maxMs: number }[];
 }
+
+const build = (parts: Parts): string => parts.map(([s, n]) => s.repeat(n)).join('');
 
 // Shared with sp-laravel-api-dart (same file, byte for byte).
 const vectors = JSON.parse(readFileSync(new URL('../vectors/log-redaction.json', import.meta.url), 'utf8')) as Vectors;
@@ -14,7 +18,8 @@ const vectors = JSON.parse(readFileSync(new URL('../vectors/log-redaction.json',
 describe('log redaction vectors', () => {
   it('has vectors for headers, bodies and urls', () => {
     expect(vectors.headers.length).toBeGreaterThanOrEqual(46);
-    expect(vectors.bodies.length).toBeGreaterThanOrEqual(103);
+    expect(vectors.bodies.length).toBeGreaterThanOrEqual(106);
+    expect(vectors.perf.length).toBeGreaterThanOrEqual(17);
     expect(vectors.urls.length).toBeGreaterThanOrEqual(69);
   });
 
@@ -40,6 +45,30 @@ describe('log redaction vectors', () => {
         expect(redactUrl(v.input)).toBe(v.expected);
       });
     }
+  });
+
+  describe('perf (every rule stays linear in the input length)', () => {
+    for (const v of vectors.perf) {
+      it(v.name, () => {
+        const input = build(v.input.parts);
+        const json: unknown = v.kind === 'bodyJson' ? JSON.parse(input) : undefined;
+        const t0 = performance.now();
+        let out: unknown;
+        if (v.kind === 'url') out = redactUrl(input);
+        else if (v.kind === 'header') out = redactHeaders({ [v.input.header as string]: input }, null)[v.input.header as string];
+        else if (v.kind === 'body') out = redactBody(input);
+        else out = redactBody(json);
+        const ms = performance.now() - t0;
+        expect(out).toBe(build(v.expected.parts));
+        expect(ms).toBeLessThan(v.maxMs);
+      });
+    }
+  });
+
+  it('isSpace is exactly the \\s class on every BMP code unit (the same set as in Dart)', () => {
+    const differ: number[] = [];
+    for (let c = 0; c <= 0xffff; c++) if (isSpace(c) !== /\s/.test(String.fromCharCode(c))) differ.push(c);
+    expect(differ).toEqual([]);
   });
 
   it('redacts a Headers instance (lower-case names)', () => {
