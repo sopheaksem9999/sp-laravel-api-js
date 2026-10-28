@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.0
+
+### Minor Changes
+
+- Cursor paging: new `direction?: 'next' | 'prev'` and `cursorColumn?: string` query options, sent as `direction=` and `cursor_column=` (both validated; `cursorColumn` follows the same rules as aggregate column names). `createCursorPagination` / `table.cursorPagination` take a `cursorColumn` option. `''` and `null` cursors still send `cursor=0`.
+
+  BREAKING: `lastPage()` without a `sort` now throws (see below). Fixed: `prevPage()` did not send `direction=prev`, so it returned the rows after the cursor instead of the rows before it; it now does. `lastPage()` assumed `sort: id asc` when the query had no `sort`, which could silently return the wrong rows: it now needs a `sort` and throws `SpApiError` `unencodable_value` without sending a request (the host's default sort depends on the table, so the client cannot know it). An omitted `order` in the `sort` is now treated as the host default (`desc`) when reversing. `lastPage()` on an empty or single short page returns `prev: null`.
+
+- Optional, redacted request logging (D1) in the new `@sokpheak/sp-laravel-api/logging` subpath. `createLogger({ sink, mode?, maxBodyLength? })` is passed as `createApi({ logger })`; calls opt in with a per-call `log: true | { headers?, bodies? }` on table methods, `cursorPagination`, `rpc`, `fn` and `request` (never sent to the server). `mode: 'perRequest'` (default) logs only those calls, `'all'` every call (except `log: false`), `'off'` none; an unknown mode means `'perRequest'`. Off by default and silent without a logger; the main entry only gains the types (`LogEntry`, `LogMode`, `LogOption`, `RequestLogger`).
+
+  One entry per HTTP attempt, so a 401 refresh retry or a `retry` attempt gets its own entry: method, URL with redacted query, status (`null` without a response), duration, sanitised request id, 1-based attempt, error `code` / `errorCode`, plus redacted headers and bodies when asked for. Redaction cannot be switched off: sensitive header names (by pattern), the tenant header and the URLs in URL-valued headers (`Location`, `Content-Location`, `Referer`, `Origin`, `Link`, `Refresh`); sensitive body and query keys at any depth (also bracketed keys, comma-joined `anyOf` keys and dotted relation paths such as `sessions.pin`); `key=value` pairs in URL fragments; filter groups (`or`, `and`) and `select` embed filters on a sensitive column or relation column; credentials in URLs, also in a URL held by a query value. Bodies: only plain data is walked (other objects are `<object>`), too-deep bodies are `<unavailable>`, JSON text is recognised after a BOM or NBSP. Redaction is a denylist of key names, not a guarantee. Bodies are cut at 2048 characters (`maxBodyLength`); binary, multipart and stream bodies are described, not read. The sink runs inline; a sink, or a hand-written logger, that throws or rejects never changes a request result.
+
+- Realtime: non-record events and the raw payload (L6, L7). `RealtimeChange` gains `raw` (the payload as received, same object) and `eventName` (the bound event name without the leading dot). `handler` and `subscribeTenant` accept an optional `onUnhandled({ eventName, payload })`, called for payloads that are not valid record events (non-object, no string `table`, unknown action, custom events), with the same swallow-and-report-once rules as `onChange`; without it such payloads are ignored as before. The callback returned by `handler` is now `(payload, eventName?)`. `subscribeTenant({ events })` binds custom Echo event names as-is. `onChange` keeps its meaning: it only receives valid record events. BREAKING: `raw` is required on `RealtimeChange`, so a hand-built `RealtimeChange` object (for example in a test) must now include it.
+
+- Added: `api.rpc` and `api.fn` accept a `query` option (a `URLSearchParams` or a plain record; null/undefined entries are skipped, booleans become `'true'`/`'false'`, and no `per_page` is added). `api.request` gains `responseType: 'blob' | 'arrayBuffer'`, which returns the raw body without envelope parsing. `attachments(api)` gains `viewBytes(id, options?)` and `viewBlob(id, options?)`: an authenticated `GET sp_attachments/{rpc}/{id}/view` that returns the exact bytes, so private images can be fetched with the client's auth and tenant headers.
+
+  BREAKING (fix): attachment ids, record ids and the `rpcPrefix` now go through the same path-segment guard as `api.rpc`: an empty, `.` or `..` value throws `unencodable_value` with no request sent, instead of being normalised by the URL parser to a different route. Normal ids are encoded as before.
+
+- BREAKING (default): a 2xx response whose JSON body is an object with `success: false` now throws `SpApiError` instead of resolving with the body as `data`. `status` stays 2xx; `errorCode` and `message` come from the body; `code` follows the envelope `error_code` (10002 `unauthenticated`, 10008 `forbidden`, 10009 `not_found`, 10004 `validation`, 10010 `server`, otherwise `unknown`); a 10004 keyed by the tenant header is `tenant_required`. Bodies that are arrays, strings or `null`, and `responseType: 'text'` calls, are untouched. To keep the old behaviour set `createApi({ treatSuccessFalseAsError: false })`.
+
+  A `200` with `error_code` 10002 now calls `auth.handleUnauthorized` once and retries once, like a 401; without a hook, or when it resolves `false`, the error is thrown at once. A throwing hook propagates unchanged.
+
+  Fixed: a 401 that arrived after a network or status retry never called `handleUnauthorized` (the refresh was tied to the first attempt); one refresh per call is now allowed whenever the 401 happens.
+
+- `SpApiError` gains `isTransport` (status 0 with code `network` or `timeout`; not other local errors such as `unencodable_value`) and `isHttp` (status above 0).
+
+  `retryAfter` now resolves from the `Retry-After` header (any status, numeric seconds `>= 0`; it was only read for 429, so it is now set for non-429 statuses that carry the header), then body `retry_after`, then `errors.retry_after_seconds` (first element or bare value, number or numeric string, must be above 0). Garbage, empty and non-positive values give `null`. `fieldErrors.retry_after_seconds` is kept, also for a bare number (`['12']`). This applies to both HTTP errors and `200 { success: false }` errors.
+
+  BREAKING: the message of a `network` / `timeout` error no longer includes the underlying error text (it may carry URLs or tokens); the original error stays on `err.cause`.
+
 ## 0.3.0
 
 ### Minor Changes
