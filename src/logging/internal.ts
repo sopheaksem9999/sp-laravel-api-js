@@ -17,10 +17,20 @@ const SENSITIVE_SUFFIX =
   /(tokens?|secrets?|passwords?|passwd|passphrase|passcode|apikeys?|privatekey|secretkey|clientkey|signingkey|encryptionkey|signature|credential|otp|(otp|verification|auth|mfa|reset|recovery|backup)codes?)$/;
 /** A PostgREST-style filter group (`or=(...)`, `not.and=(...)`). */
 const GROUP_KEY = /^(not\.)?(and|or)$/;
-/** A column inside a filter group: the text before the first `.` after the start, a `(` or a `,`. */
-const GROUP_COLUMN = /(?:^|[(,])\s*([^(),.]+)\./g;
+/**
+ * Operator words of the SP API filter syntax (the host's `FilterOperatorCatalog`) and the `not.` prefix. In a filter
+ * group item `path.op.value` the dotted segments before the first of these are the column path (`sessions.token`).
+ */
+const OPERATORS: ReadonlySet<string> = new Set([
+  'not', 'is', 'is_not', 'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'not_in', 'between', 'not_between',
+  'like', 'ilike', 'not_like', 'not_ilike', 'contains', 'starts_with', 'not_starts_with', 'ends_with', 'not_ends_with',
+  'regex', 'not_regex', 'match', 'not_match', 'imatch', 'not_imatch',
+  'date_eq', 'date_neq', 'date_gt', 'date_gte', 'date_lt', 'date_lte', 'empty', 'not_empty',
+  'fts', 'not_fts', 'plfts', 'not_plfts', 'phfts', 'not_phfts', 'wfts', 'not_wfts', 'cs', 'not_cs', 'cd', 'not_cd',
+  'ov', 'not_ov', 'sl', 'not_sl', 'sr', 'not_sr', 'nxl', 'not_nxl', 'nxr', 'not_nxr', 'adj', 'not_adj',
+]);
 /** The column of an embed filter inside `select` (`rel(cols,col=op.value)`): the text before `=` after the start, a `(` or a `,`. */
-const EMBED_COLUMN = /(?:^|[(,])\s*([^(),.=]+)=/g;
+const EMBED_COLUMN = /(?:^|[(,])\s*([^(),=]+)=/g;
 
 /** Lower-cased, `-` and `_` removed: equals a listed key, matches the sensitive suffix, or starts with password. */
 export function isSensitiveKey(k: string): boolean {
@@ -60,25 +70,48 @@ function decode(s: string): string {
   }
 }
 
-/** A query key is sensitive when it, any bracket segment (`user[password]`) or any comma-separated part (`anyOf`: `api_token,email`) is. */
-function isSensitiveQueryKey(rawKey: string): boolean {
-  const key = decode(rawKey);
-  return isSensitiveKey(key) || key.split(/\s*[[\],]\s*/).some((s) => s !== '' && isSensitiveKey(s));
+/** Removes leading and trailing `\s` (the same characters in JS and Dart regular expressions). */
+const strip = (s: string): string => s.replace(/^\s+|\s+$/g, '');
+
+/** Whether any (trimmed) segment of a column path (`sessions.pin`) is a sensitive key. */
+function isSensitivePath(segments: string[]): boolean {
+  return segments.some((s) => {
+    const t = strip(s);
+    return t !== '' && isSensitiveKey(t);
+  });
 }
 
-function namesSensitiveColumn(value: string, re: RegExp): boolean {
-  for (const m of value.matchAll(re)) if (isSensitiveKey(m[1] as string)) return true;
-  return false;
+/**
+ * A query key is sensitive when it is, or when any part of it split on `[`, `]`, `,` or `.` is: a bracket segment
+ * (`user[password]`), an `anyOf` column (`api_token,email`) or a relation path segment (`sessions.pin`).
+ */
+function isSensitiveQueryKey(rawKey: string): boolean {
+  const key = decode(rawKey);
+  return isSensitiveKey(key) || isSensitivePath(key.split(/\s*[[\],.]\s*/));
+}
+
+/**
+ * One item of a filter group (`path.op.value`): the dotted segments before the first operator word are the column
+ * path, so `sessions.token.eq.x` tests `sessions` and `token` while `status.eq.token` tests only `status`. An item
+ * without a dot (a list value, a logic word) is not a condition; one without an operator word is tested whole.
+ */
+function isSensitiveCondition(item: string): boolean {
+  const segments = item.split('.').map(strip);
+  if (segments.length < 2) return false;
+  const op = segments.findIndex((s) => OPERATORS.has(s));
+  return isSensitivePath(op < 0 ? segments : segments.slice(0, op));
 }
 
 /**
  * A value that embeds a condition on a sensitive column, at any nesting depth: a filter group (`or`, `and`, `not.or`,
- * `not.and`: `col.op.value`) or a `select` with an embed filter (`rel(cols,col=op.value)`).
+ * `not.and`: `path.op.value` items) or a `select` with an embed filter (`rel(cols,path=op.value)`).
  */
 function isSensitiveEmbedded(rawKey: string, rawValue: string): boolean {
   const key = decode(rawKey);
-  if (GROUP_KEY.test(key)) return namesSensitiveColumn(decode(rawValue), GROUP_COLUMN);
-  if (key === 'select') return namesSensitiveColumn(decode(rawValue), EMBED_COLUMN);
+  if (GROUP_KEY.test(key)) return decode(rawValue).split(/[(),]/).some((item) => isSensitiveCondition(item));
+  if (key === 'select') {
+    for (const m of decode(rawValue).matchAll(EMBED_COLUMN)) if (isSensitivePath((m[1] as string).split('.'))) return true;
+  }
   return false;
 }
 

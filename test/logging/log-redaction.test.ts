@@ -15,7 +15,7 @@ describe('log redaction vectors', () => {
   it('has vectors for headers, bodies and urls', () => {
     expect(vectors.headers.length).toBeGreaterThanOrEqual(46);
     expect(vectors.bodies.length).toBeGreaterThanOrEqual(103);
-    expect(vectors.urls.length).toBeGreaterThanOrEqual(52);
+    expect(vectors.urls.length).toBeGreaterThanOrEqual(69);
   });
 
   describe('headers', () => {

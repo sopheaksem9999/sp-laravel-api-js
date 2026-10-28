@@ -487,6 +487,17 @@ describe('request logging, hardening', () => {
     expect(entries[3]?.url).toContain('select=id%2Csessions%28id%2Cstatus%3Deq.open%29');
   });
 
+  it('redacts dotted relation columns built by the query serializer', async () => {
+    const { api, entries } = rig([ok, ok, ok, ok], { logMode: 'all' });
+    await api.table('users').list({ or: [{ 'sessions.token': 'SECRET_REL1' }, { status: 'open' }] });
+    await api.table('users').list({ or: [{ status: 'open', 'sessions.pin': 'SECRET_REL2' }] });
+    await api.table('users').list({ where: { 'sessions.pin': 'SECRET_REL3' } });
+    await api.table('invoices').list({ or: [{ 'customer.display_name': { ilike: 'acme' } }, { status: 'token' }] });
+    const all = JSON.stringify(entries);
+    for (const s of ['SECRET_REL1', 'SECRET_REL2', 'SECRET_REL3']) expect(all).not.toContain(s);
+    expect(entries[3]?.url).toContain('customer.display_name.ilike.acme');
+  });
+
   it('cursorPagination forwards the log option to every list call', async () => {
     const { api, entries, calls } = rig([() => json({ success: true, data: [{ id: 1 }], meta: { next_cursor: 'n1', prev_cursor: 'p1' } })], { logMode: 'perRequest' });
     const cp = api.table('invoices').cursorPagination({ perPage: 1, log: true });
