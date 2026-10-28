@@ -1,0 +1,842 @@
+{
+  "_note": "Canonical redaction vectors for optional request logging. Shared byte for byte by sp-laravel-api-js (test/vectors/log-redaction.json) and sp-laravel-api-dart (test/vectors/log_redaction.json). The placeholder is the text <redacted>; the truncation limit is 2048 UTF-16 code units, and a longer body keeps its first 2048 and appends the marker …[truncated]. headers: input.headers is a map of header name to value and input.tenantHeader is the configured tenant header name or null; expected is the map after redaction (names keep the case they were given; sensitive names are matched case-insensitively). bodies: input is any JSON value; a JSON string is a body that was sent as text: a string holding a JSON object or array is parsed, redacted and re-serialised compactly with no spaces and keys in the original order, and a url-encoded string has its sensitive values replaced; any other string is only truncated. Sensitive keys match case-insensitively with - and _ ignored (password, access_token, refresh_token, token, code, otp, secret, api_key) or end in _token (with - read as _); a sensitive key has its whole value replaced, at any depth and inside arrays. urls: input is a full URL; query values of sensitive keys (also inside brackets) become the placeholder, credentials in the authority become the placeholder, and paths and fragments are kept.",
+  "headers": [
+    {
+      "name": "Authorization header",
+      "input": {
+        "headers": {
+          "Authorization": "Bearer abc.def.ghi"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Authorization": "<redacted>"
+      }
+    },
+    {
+      "name": "authorization lower-case",
+      "input": {
+        "headers": {
+          "authorization": "Bearer abc"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "authorization": "<redacted>"
+      }
+    },
+    {
+      "name": "AUTHORIZATION upper-case",
+      "input": {
+        "headers": {
+          "AUTHORIZATION": "Basic dXNlcjpwYXNz"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "AUTHORIZATION": "<redacted>"
+      }
+    },
+    {
+      "name": "Cookie header",
+      "input": {
+        "headers": {
+          "Cookie": "session=abc; theme=dark"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Cookie": "<redacted>"
+      }
+    },
+    {
+      "name": "Set-Cookie header",
+      "input": {
+        "headers": {
+          "Set-Cookie": "session=abc; HttpOnly"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Set-Cookie": "<redacted>"
+      }
+    },
+    {
+      "name": "set-cookie lower-case",
+      "input": {
+        "headers": {
+          "set-cookie": "a=b"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "set-cookie": "<redacted>"
+      }
+    },
+    {
+      "name": "X-CSRF-Token header",
+      "input": {
+        "headers": {
+          "X-CSRF-Token": "csrf-value"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-CSRF-Token": "<redacted>"
+      }
+    },
+    {
+      "name": "x-csrf-token lower-case",
+      "input": {
+        "headers": {
+          "x-csrf-token": "csrf-value"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "x-csrf-token": "<redacted>"
+      }
+    },
+    {
+      "name": "tenant header value is redacted",
+      "input": {
+        "headers": {
+          "X-Company-ID": "5",
+          "Accept": "application/json"
+        },
+        "tenantHeader": "X-Company-ID"
+      },
+      "expected": {
+        "X-Company-ID": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "tenant header matches case-insensitively",
+      "input": {
+        "headers": {
+          "x-company-id": "5"
+        },
+        "tenantHeader": "X-Company-ID"
+      },
+      "expected": {
+        "x-company-id": "<redacted>"
+      }
+    },
+    {
+      "name": "tenant header is left alone when none is configured",
+      "input": {
+        "headers": {
+          "X-Company-ID": "5"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-Company-ID": "5"
+      }
+    },
+    {
+      "name": "normal headers are unchanged",
+      "input": {
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "X-Request-ID": "req-1"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "X-Request-ID": "req-1"
+      }
+    },
+    {
+      "name": "mixed sensitive and normal headers",
+      "input": {
+        "headers": {
+          "Accept": "application/json",
+          "Authorization": "Bearer x",
+          "Cookie": "a=b",
+          "X-Request-ID": "r"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Accept": "application/json",
+        "Authorization": "<redacted>",
+        "Cookie": "<redacted>",
+        "X-Request-ID": "r"
+      }
+    },
+    {
+      "name": "no headers",
+      "input": {
+        "headers": {},
+        "tenantHeader": null
+      },
+      "expected": {}
+    }
+  ],
+  "bodies": [
+    {
+      "name": "key password (lower)",
+      "input": {
+        "password": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "password": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key password (UPPER)",
+      "input": {
+        "PASSWORD": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "PASSWORD": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key password (Mixed-Case)",
+      "input": {
+        "Password": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "Password": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key access_token (lower)",
+      "input": {
+        "access_token": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "access_token": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key access_token (UPPER)",
+      "input": {
+        "ACCESS_TOKEN": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "ACCESS_TOKEN": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key access_token (Mixed-Case)",
+      "input": {
+        "Access_Token": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "Access_Token": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key access_token (kebab-case)",
+      "input": {
+        "access-token": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "access-token": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key refresh_token (lower)",
+      "input": {
+        "refresh_token": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "refresh_token": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key refresh_token (UPPER)",
+      "input": {
+        "REFRESH_TOKEN": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "REFRESH_TOKEN": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key refresh_token (Mixed-Case)",
+      "input": {
+        "Refresh_Token": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "Refresh_Token": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key refresh_token (kebab-case)",
+      "input": {
+        "refresh-token": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "refresh-token": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key token (lower)",
+      "input": {
+        "token": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "token": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key token (UPPER)",
+      "input": {
+        "TOKEN": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "TOKEN": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key token (Mixed-Case)",
+      "input": {
+        "Token": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "Token": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key code (lower)",
+      "input": {
+        "code": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "code": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key code (UPPER)",
+      "input": {
+        "CODE": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "CODE": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key code (Mixed-Case)",
+      "input": {
+        "Code": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "Code": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key otp (lower)",
+      "input": {
+        "otp": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "otp": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key otp (UPPER)",
+      "input": {
+        "OTP": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "OTP": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key otp (Mixed-Case)",
+      "input": {
+        "Otp": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "Otp": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key secret (lower)",
+      "input": {
+        "secret": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "secret": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key secret (UPPER)",
+      "input": {
+        "SECRET": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "SECRET": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key secret (Mixed-Case)",
+      "input": {
+        "Secret": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "Secret": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key api_key (lower)",
+      "input": {
+        "api_key": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "api_key": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key api_key (UPPER)",
+      "input": {
+        "API_KEY": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "API_KEY": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key api_key (Mixed-Case)",
+      "input": {
+        "Api_Key": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "Api_Key": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key api_key (kebab-case)",
+      "input": {
+        "api-key": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "api-key": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key Api-Key (Mixed kebab)",
+      "input": {
+        "Api-Key": "k-1"
+      },
+      "expected": {
+        "Api-Key": "<redacted>"
+      }
+    },
+    {
+      "name": "key ending in _token",
+      "input": {
+        "device_token": "d-1",
+        "csrf_token": "c-1",
+        "id_token": "i-1"
+      },
+      "expected": {
+        "device_token": "<redacted>",
+        "csrf_token": "<redacted>",
+        "id_token": "<redacted>"
+      }
+    },
+    {
+      "name": "key ending in -token (kebab) and upper",
+      "input": {
+        "device-token": "d-1",
+        "DEVICE_TOKEN": "d-2"
+      },
+      "expected": {
+        "device-token": "<redacted>",
+        "DEVICE_TOKEN": "<redacted>"
+      }
+    },
+    {
+      "name": "sensitive value that is an object is replaced whole",
+      "input": {
+        "token": {
+          "a": 1,
+          "b": [
+            1,
+            2
+          ]
+        },
+        "keep": 1
+      },
+      "expected": {
+        "token": "<redacted>",
+        "keep": 1
+      }
+    },
+    {
+      "name": "sensitive value that is null",
+      "input": {
+        "password": null
+      },
+      "expected": {
+        "password": "<redacted>"
+      }
+    },
+    {
+      "name": "nested objects",
+      "input": {
+        "user": {
+          "name": "Acme",
+          "credentials": {
+            "password": "p1",
+            "nested": {
+              "api_key": "k1",
+              "note": "n"
+            }
+          }
+        }
+      },
+      "expected": {
+        "user": {
+          "name": "Acme",
+          "credentials": {
+            "password": "<redacted>",
+            "nested": {
+              "api_key": "<redacted>",
+              "note": "n"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "arrays of objects",
+      "input": {
+        "items": [
+          {
+            "id": 1,
+            "token": "t1"
+          },
+          {
+            "id": 2,
+            "otp": "123456"
+          },
+          {
+            "id": 3
+          }
+        ]
+      },
+      "expected": {
+        "items": [
+          {
+            "id": 1,
+            "token": "<redacted>"
+          },
+          {
+            "id": 2,
+            "otp": "<redacted>"
+          },
+          {
+            "id": 3
+          }
+        ]
+      }
+    },
+    {
+      "name": "top-level array",
+      "input": [
+        {
+          "secret": "s1",
+          "id": 1
+        },
+        [
+          {
+            "refresh_token": "r1"
+          }
+        ]
+      ],
+      "expected": [
+        {
+          "secret": "<redacted>",
+          "id": 1
+        },
+        [
+          {
+            "refresh_token": "<redacted>"
+          }
+        ]
+      ]
+    },
+    {
+      "name": "array of plain values is unchanged",
+      "input": {
+        "tags": [
+          "a",
+          "b",
+          "password"
+        ]
+      },
+      "expected": {
+        "tags": [
+          "a",
+          "b",
+          "password"
+        ]
+      }
+    },
+    {
+      "name": "stringified JSON body",
+      "input": "{\"email\":\"a@example.com\",\"password\":\"p1\",\"nested\":{\"access_token\":\"t1\"}}",
+      "expected": "{\"email\":\"a@example.com\",\"password\":\"<redacted>\",\"nested\":{\"access_token\":\"<redacted>\"}}"
+    },
+    {
+      "name": "stringified JSON array body",
+      "input": "[{\"token\":\"t1\",\"id\":1}]",
+      "expected": "[{\"token\":\"<redacted>\",\"id\":1}]"
+    },
+    {
+      "name": "stringified JSON without sensitive keys",
+      "input": "{\"a\":1,\"b\":[true,null]}",
+      "expected": "{\"a\":1,\"b\":[true,null]}"
+    },
+    {
+      "name": "url-encoded string body",
+      "input": "email=a%40example.com&password=p1&otp=123456",
+      "expected": "email=a%40example.com&password=<redacted>&otp=<redacted>"
+    },
+    {
+      "name": "normal fields are unchanged",
+      "input": {
+        "id": 1,
+        "ref_number": "INV-1",
+        "total": 12.5,
+        "paid": true,
+        "note": null,
+        "lines": [
+          {
+            "sku": "A",
+            "qty": 2
+          }
+        ]
+      },
+      "expected": {
+        "id": 1,
+        "ref_number": "INV-1",
+        "total": 12.5,
+        "paid": true,
+        "note": null,
+        "lines": [
+          {
+            "sku": "A",
+            "qty": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "keys that only contain a sensitive word are unchanged",
+      "input": {
+        "tokens_left": 3,
+        "passwords": "x",
+        "encoded": "y",
+        "zipcode": "1"
+      },
+      "expected": {
+        "tokens_left": 3,
+        "passwords": "x",
+        "encoded": "y",
+        "zipcode": "1"
+      }
+    },
+    {
+      "name": "plain text that is not JSON",
+      "input": "hello world",
+      "expected": "hello world"
+    },
+    {
+      "name": "empty string",
+      "input": "",
+      "expected": ""
+    },
+    {
+      "name": "number",
+      "input": 42,
+      "expected": 42
+    },
+    {
+      "name": "boolean",
+      "input": true,
+      "expected": true
+    },
+    {
+      "name": "null",
+      "input": null,
+      "expected": null
+    },
+    {
+      "name": "text length 2048 is not truncated",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "text length 2049 is truncated",
+      "input": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "expected": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…[truncated]"
+    },
+    {
+      "name": "text length 5000 is truncated",
+      "input": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "expected": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb…[truncated]"
+    }
+  ],
+  "urls": [
+    {
+      "name": "no query",
+      "input": "https://api.example.com/api/invoices",
+      "expected": "https://api.example.com/api/invoices"
+    },
+    {
+      "name": "normal query is unchanged",
+      "input": "https://api.example.com/api/invoices?per_page=20&status=eq.paid",
+      "expected": "https://api.example.com/api/invoices?per_page=20&status=eq.paid"
+    },
+    {
+      "name": "token in query",
+      "input": "https://api.example.com/api/invoices?token=abc123&per_page=20",
+      "expected": "https://api.example.com/api/invoices?token=<redacted>&per_page=20"
+    },
+    {
+      "name": "query key password",
+      "input": "https://api.example.com/api/x?password=v1&keep=1",
+      "expected": "https://api.example.com/api/x?password=<redacted>&keep=1"
+    },
+    {
+      "name": "query key access_token",
+      "input": "https://api.example.com/api/x?access_token=v1&keep=1",
+      "expected": "https://api.example.com/api/x?access_token=<redacted>&keep=1"
+    },
+    {
+      "name": "query key refresh_token",
+      "input": "https://api.example.com/api/x?refresh_token=v1&keep=1",
+      "expected": "https://api.example.com/api/x?refresh_token=<redacted>&keep=1"
+    },
+    {
+      "name": "query key token",
+      "input": "https://api.example.com/api/x?token=v1&keep=1",
+      "expected": "https://api.example.com/api/x?token=<redacted>&keep=1"
+    },
+    {
+      "name": "query key code",
+      "input": "https://api.example.com/api/x?code=v1&keep=1",
+      "expected": "https://api.example.com/api/x?code=<redacted>&keep=1"
+    },
+    {
+      "name": "query key otp",
+      "input": "https://api.example.com/api/x?otp=v1&keep=1",
+      "expected": "https://api.example.com/api/x?otp=<redacted>&keep=1"
+    },
+    {
+      "name": "query key secret",
+      "input": "https://api.example.com/api/x?secret=v1&keep=1",
+      "expected": "https://api.example.com/api/x?secret=<redacted>&keep=1"
+    },
+    {
+      "name": "query key api_key",
+      "input": "https://api.example.com/api/x?api_key=v1&keep=1",
+      "expected": "https://api.example.com/api/x?api_key=<redacted>&keep=1"
+    },
+    {
+      "name": "query key UPPER and Mixed-Case",
+      "input": "https://api.example.com/api/x?PASSWORD=v1&Access_Token=v2&Api-Key=v3",
+      "expected": "https://api.example.com/api/x?PASSWORD=<redacted>&Access_Token=<redacted>&Api-Key=<redacted>"
+    },
+    {
+      "name": "query key ending in _token",
+      "input": "https://api.example.com/api/x?device_token=v1&a=1",
+      "expected": "https://api.example.com/api/x?device_token=<redacted>&a=1"
+    },
+    {
+      "name": "percent-encoded query key",
+      "input": "https://api.example.com/api/x?access%5Ftoken=v1&a=1",
+      "expected": "https://api.example.com/api/x?access%5Ftoken=<redacted>&a=1"
+    },
+    {
+      "name": "bracketed query key",
+      "input": "https://api.example.com/api/x?user[password]=v1&a=1",
+      "expected": "https://api.example.com/api/x?user[password]=<redacted>&a=1"
+    },
+    {
+      "name": "sensitive key without a value",
+      "input": "https://api.example.com/api/x?token&a=1",
+      "expected": "https://api.example.com/api/x?token&a=1"
+    },
+    {
+      "name": "fragment is kept",
+      "input": "https://api.example.com/api/x?token=v1#top",
+      "expected": "https://api.example.com/api/x?token=<redacted>#top"
+    },
+    {
+      "name": "credentials in the authority",
+      "input": "https://user:pw@api.example.com/api/x?a=1",
+      "expected": "https://<redacted>@api.example.com/api/x?a=1"
+    },
+    {
+      "name": "paths are logged verbatim",
+      "input": "https://api.example.com/api/invoices/42/rpc/send",
+      "expected": "https://api.example.com/api/invoices/42/rpc/send"
+    }
+  ]
+}

@@ -1,5 +1,7 @@
 import { SpApiError, errorFromResponse, transportError } from './errors';
 import type { Query } from './query-types';
+import { startLog } from './logging';
+import type { LogEntry, LogMode, LogOption } from './logging';
 import { serializeQuery } from './serialize';
 
 /** Supplies auth headers and, optionally, a recovery hook for 401 responses. */
@@ -50,6 +52,13 @@ export interface ApiConfig {
   debug?: boolean;
   /** Automatic retry policy for transient failures. Disabled by default. */
   retry?: RetryConfig;
+  /**
+   * Request logging sink; with none configured logging is a no-op. Called inline once per HTTP attempt: keep it
+   * quick. A throw or a rejected promise from it is swallowed. Headers, bodies and query values are redacted.
+   */
+  logger?: (entry: LogEntry) => void;
+  /** `'perRequest'` (default once a `logger` exists), `'all'` or `'off'`. */
+  logMode?: LogMode;
 }
 
 /** One HTTP call. */
@@ -79,6 +88,8 @@ export interface RequestOptions {
    * - `RetryConfig`: custom retry options for this call
    */
   retry?: boolean | RetryConfig;
+  /** Log this call to the configured `logger`: `true`, or `{ headers?, bodies? }` to include those (redacted). Never sent to the server. */
+  log?: LogOption;
 }
 
 /** Unwrapped result of a successful call. */
@@ -210,6 +221,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
       }
     }
 
+    const lg = cfg.logger === undefined ? undefined : startLog(cfg.logger, cfg.logMode, cfg.tenant?.header, o, url, body);
     const requestId = globalThis.crypto.randomUUID();
     const timeoutMs = o.timeoutMs ?? cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -255,6 +267,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
       if (isAborted(o.signal)) onAbort();
       else o.signal?.addEventListener('abort', onAbort, { once: true });
 
+      const t0 = lg?.now() ?? 0;
       let res: Response;
       let text = '';
       let failure: SpApiError | null = null;
@@ -269,6 +282,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
           });
         }
       } catch (e) {
+        lg?.emit({ attempt: attempt + 1, t0, sent: headers, kind: isAborted(o.signal) ? 'aborted' : timedOut ? 'timeout' : 'network' });
         if (isAborted(o.signal)) throw e;
         const err = transportError(timedOut ? 'timeout' : 'network', e, o.module);
         if (retryEnabled && retryCount < maxRetryAttempts && retryCfg.networkErrors !== false) {
@@ -284,6 +298,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
       }
 
       if (failure !== null) {
+        lg?.emit({ attempt: attempt + 1, t0, sent: headers, res, failure });
         if (failure.status === 401 && attempt === 0 && cfg.auth?.handleUnauthorized !== undefined) {
           const sent: Record<string, string> = {};
           headers.forEach((v, k) => {
@@ -308,6 +323,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
         throw failure;
       }
 
+      lg?.emit({ attempt: attempt + 1, t0, sent: headers, res, text, responseType: o.responseType });
       if (o.responseType === 'text') return { data: text as T, meta: {}, response: res };
       if (text.trim() === '') return { data: null as T, meta: {}, response: res };
       let parsed: unknown;

@@ -81,6 +81,39 @@ for await (const row of invoices.iterate({ where: { status: 'open' }, perPage: 1
 
 Other table methods: `update` (PUT), `patch`, `remove`, `restore`, `upsert`, `aggregate`. `restore(id)` resolves `{ restored: number }` (the backend's count, typed `RestoreResult`), not the row; call `get(id)` afterwards if you need it. `api.fn('invoices', 'approve', { id: 7, method: 'POST' })` calls a table function and `api.rpc('auth/whoami')` a global one. `api.request()` is the low-level call for anything else.
 
+## Request logging
+
+Off by default and silent unless you give the client a sink. The package never writes output itself (no `console` call inside it); the sink is yours. Setup is a `logger` and, optionally, a `logMode`:
+
+```ts
+// typecheck
+import { createApi } from '@sokpheak/sp-laravel-api';
+
+const api = createApi({
+  baseUrl: 'https://api.example.com/api/v2',
+  logger: (entry) => console.log(entry.method, entry.url, entry.status, `${entry.durationMs}ms`, `attempt ${entry.attempt}`),
+  logMode: 'perRequest', // default once a logger exists: only calls that opt in are logged. 'all' logs every call, 'off' none.
+});
+```
+
+Opt in per call on any table method, `rpc` or `fn` (the option is never sent to the server). `log: true` logs method, URL, status, duration, request id, attempt and the error `code` / `errorCode`; headers and bodies appear only when asked for:
+
+```ts
+// typecheck
+const invoices = api.table('invoices');
+await invoices.list({ where: { status: 'open' } }, { log: true });
+await invoices.create({ ref_number: 'INV-1' }, { log: { bodies: true } });
+await api.rpc('reports/summary', { log: { headers: true, bodies: true } });
+```
+
+One entry is produced per HTTP attempt, so a 401 refresh retry or a configured `retry` shows up as its own entry with the next `attempt` (1-based). A call that fails without a response (network error, timeout, abort) still produces an entry with `status: null` and the error `code`.
+
+- Redaction cannot be switched off, not by `headers` or `bodies`. The `Authorization`, `Cookie`, `Set-Cookie` and `X-CSRF-Token` headers and the tenant header are shown as `<redacted>`; body and query keys `password`, `access_token`, `refresh_token`, `token`, `code`, `otp`, `secret`, `api_key` and any key ending in `_token` are replaced by `<redacted>` at any depth.
+- Bodies are cut at 2048 characters; binary bodies are shown as `<N bytes>`, `FormData` and `Blob` as `<multipart>`, streams as `<stream>`. A text, binary or streamed response body is never read a second time or buffered for logging.
+- Paths and ids in URLs are logged verbatim (`/invoices/42`): do not put secrets in a path.
+- The sink runs inline, on the request path: keep it quick and hand slow work to a queue. A sink that throws, or returns a rejected promise, is ignored and never changes the result of the call.
+- `debug` is a different option: it asks the server for diagnostics (`X-Debug`).
+
 ## Query syntax cheat sheet
 
 The query object is serialised for you; nobody hand-writes filter strings. What goes on the wire:

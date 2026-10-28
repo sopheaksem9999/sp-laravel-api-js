@@ -3,6 +3,7 @@ import { buildPage, createCursorPagination } from './page';
 import type { CursorPagination, CursorPaginationOptions, Page } from './page';
 import type { AggregateRow, AggregateSpec, Query, SelectItem, Where } from './query-types';
 import type { Api } from './create-api';
+import type { LogOption } from './logging';
 import type { createRequester } from './request';
 
 export type { CursorPagination, CursorPaginationOptions, Page } from './page';
@@ -16,6 +17,8 @@ export interface CallOptions {
   signal?: AbortSignal;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  /** Log this call to the client's `logger` (`true`, or `{ headers?, bodies? }`; always redacted). Never sent to the server. */
+  log?: LogOption;
 }
 
 type Id = string | number;
@@ -60,6 +63,7 @@ function callOpts(o: CallOptions | undefined): CallOptions {
   if (o?.signal !== undefined) out.signal = o.signal;
   if (o?.headers !== undefined) out.headers = o.headers;
   if (o?.timeoutMs !== undefined) out.timeoutMs = o.timeoutMs;
+  if (o?.log !== undefined) out.log = o.log;
   return out;
 }
 

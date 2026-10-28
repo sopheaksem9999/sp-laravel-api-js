@@ -10,6 +10,7 @@ export type { Keys } from './core/keys';
 
 export { SpApiError, errorFromResponse, isSpApiError, transportError } from './core/errors';
 export type { ErrorContext, SpErrorCode } from './core/errors';
+export type { LogEntry, LogMode, LogOption } from './core/logging';
 export { serializeQuery } from './core/serialize';
 export type {
   AggregateRow,

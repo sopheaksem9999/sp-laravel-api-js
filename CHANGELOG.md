@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Minor Changes
+
+- Optional, redacted request logging (`logger`, `logMode` on `createApi`; per-call `log: true | { headers?, bodies? }` on table methods, `rpc`, `fn` and `request`). Off by default and silent without a `logger`. One `LogEntry` per HTTP attempt (method, URL with redacted query, status, duration, request id, 1-based attempt, error `code` / `errorCode`). Credentials headers and sensitive body and query keys are always redacted; bodies are cut at 2048 characters; the sink is isolated so a throw or a rejected promise never changes a request result. Exports the `LogEntry`, `LogMode` and `LogOption` types.
+
 ## 0.3.0
 
 ### Minor Changes
