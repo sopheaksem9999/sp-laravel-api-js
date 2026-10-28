@@ -1,6 +1,6 @@
 import { SpApiError, errorFromResponse, transportError } from './errors';
 import type { Query } from './query-types';
-import type { LogOption, RequestLogger } from './log-types';
+import type { AttemptInfo, LogOption, LogRequest, RequestLogger } from './log-types';
 import { serializeQuery } from './serialize';
 
 /** Supplies auth headers and, optionally, a recovery hook for 401 responses. */
@@ -130,6 +130,15 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+/** Reports one attempt; a hand-written `finish` that throws is ignored, so the result or error is returned or thrown unchanged. */
+function fin(lg: LogRequest, i: AttemptInfo): void {
+  try {
+    lg.finish(i);
+  } catch {
+    /* the logger is the caller's; it never changes the request result */
+  }
+}
+
 /** Re-evaluated at each call site so TypeScript does not narrow `aborted` across awaits. */
 function isAborted(s: AbortSignal | undefined): boolean {
   return s?.aborted === true;
@@ -215,7 +224,12 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
       }
     }
 
-    const lg = cfg.logger?.start({ method: o.method, url, log: o.log, body, tenantHeader: cfg.tenant?.header });
+    let lg: LogRequest | undefined;
+    try {
+      lg = cfg.logger?.start({ method: o.method, url, log: o.log, body, tenantHeader: cfg.tenant?.header });
+    } catch {
+      /* a hand-written `start` that throws counts as no logger: the request is unchanged */
+    }
     const requestId = globalThis.crypto.randomUUID();
     const timeoutMs = o.timeoutMs ?? cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
@@ -276,7 +290,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
           });
         }
       } catch (e) {
-        lg?.finish({ attempt: attempt + 1, t0, sent: headers, kind: isAborted(o.signal) ? 'aborted' : timedOut ? 'timeout' : 'network' });
+        if (lg) fin(lg, { attempt: attempt + 1, t0, sent: headers, kind: isAborted(o.signal) ? 'aborted' : timedOut ? 'timeout' : 'network' });
         if (isAborted(o.signal)) throw e;
         const err = transportError(timedOut ? 'timeout' : 'network', e, o.module);
         if (retryEnabled && retryCount < maxRetryAttempts && retryCfg.networkErrors !== false) {
@@ -292,7 +306,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
       }
 
       if (failure !== null) {
-        lg?.finish({ attempt: attempt + 1, t0, sent: headers, res, failure });
+        if (lg) fin(lg, { attempt: attempt + 1, t0, sent: headers, res, failure });
         if (failure.status === 401 && attempt === 0 && cfg.auth?.handleUnauthorized !== undefined) {
           const sent: Record<string, string> = {};
           headers.forEach((v, k) => {
@@ -317,7 +331,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
         throw failure;
       }
 
-      lg?.finish({ attempt: attempt + 1, t0, sent: headers, res, text, responseType: o.responseType });
+      if (lg) fin(lg, { attempt: attempt + 1, t0, sent: headers, res, text, responseType: o.responseType });
       if (o.responseType === 'text') return { data: text as T, meta: {}, response: res };
       if (text.trim() === '') return { data: null as T, meta: {}, response: res };
       let parsed: unknown;

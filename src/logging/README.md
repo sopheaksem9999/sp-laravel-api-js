@@ -14,7 +14,9 @@ const api = createApi({
 await api.table('invoices').list({}, { log: { bodies: true } });
 ```
 
-`createLogger({ sink, mode?, maxBodyLength? })`: `mode` is `'perRequest'` (default: only calls with `log` are logged), `'all'` or `'off'`; `maxBodyLength` is the longest body kept (default 2048). See the main README ("Request logging") for the entry shape and caveats.
+`createLogger({ sink, mode?, maxBodyLength? })`: `mode` is `'perRequest'` (default: only calls with `log` are logged; an unknown value also means this), `'all'` or `'off'`; `maxBodyLength` is the longest body kept (default 2048).
+
+A hand-written `RequestLogger` (`{ start(ctx) { return { finish(attempt) { ... } } } }`) is also accepted. Its `finish` runs inline, once per attempt, and must not return a promise: nothing awaits it, so a rejection would be unhandled. A `start` or `finish` that throws is ignored and never changes the request result, retries included. See the main README ("Request logging") for the entry shape and caveats.
 
 Redaction rules (they cannot be switched off; the shared fixture `test/vectors/log-redaction.json` is the reference):
 

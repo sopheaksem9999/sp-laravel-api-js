@@ -45,12 +45,19 @@ export interface AttemptInfo {
   responseType?: string;
 }
 
-/** One logged request; `finish` is called once per HTTP attempt. */
+/**
+ * One logged request; `finish` is called once per HTTP attempt, inline. It must not return a promise (nothing awaits
+ * it, so a rejection would be unhandled); hand slow work to a queue. A `finish` that throws is ignored.
+ */
 export interface LogRequest {
   finish(i: AttemptInfo): void;
 }
 
-/** What core needs from a logger (`createLogger` from `@sokpheak/sp-laravel-api/logging`). `start` returns `undefined` to skip a request and must never throw. */
+/**
+ * What core needs from a logger (`createLogger` from `@sokpheak/sp-laravel-api/logging`). `start` returns `undefined`
+ * to skip a request. A hand-written `start` or `finish` that throws is ignored (the request goes on as if no logger
+ * were set, and its result or error is unchanged); `finish` must not return a promise.
+ */
 export interface RequestLogger {
   start(ctx: { method: string; url: string; log: LogOption | undefined; body: unknown; tenantHeader: string | undefined }): LogRequest | undefined;
 }

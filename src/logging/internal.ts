@@ -206,7 +206,7 @@ function safely(f: () => unknown): unknown {
 export interface LoggerOptions {
   /** Receives one entry per HTTP attempt, called inline: keep it quick. A throw or rejected promise is ignored. */
   sink: (entry: LogEntry) => unknown;
-  /** Default `'perRequest'`. */
+  /** Default `'perRequest'`; any other value than `'all'` or `'off'` also means `'perRequest'`. */
   mode?: LogMode;
   /** Longest body kept in an entry, in UTF-16 code units (default 2048). */
   maxBodyLength?: number;
@@ -219,7 +219,8 @@ export function startLog(
 ): LogRequest | undefined {
   try {
     const { log } = ctx;
-    const mode = opts.mode ?? 'perRequest';
+    // an unknown mode (a typo, a value from config) behaves as the default rather than logging everything
+    const mode = opts.mode === 'all' || opts.mode === 'off' ? opts.mode : 'perRequest';
     if (mode === 'off' || log === false || (mode === 'perRequest' && log === undefined)) return undefined;
     const max = typeof opts.maxBodyLength === 'number' && opts.maxBodyLength >= 1 ? Math.floor(opts.maxBodyLength) : MAX_BODY;
     const withHeaders = typeof log === 'object' && log.headers === true;

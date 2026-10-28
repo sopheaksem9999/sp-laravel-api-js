@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createApi } from '../../src/core/create-api';
 import type { ApiConfig } from '../../src/core/request';
 import { createLogger } from '../../src/logging';
-import type { LogEntry, LogMode } from '../../src/logging';
+import type { LogEntry, LogMode, RequestLogger } from '../../src/logging';
 import { sanitiseRequestId } from '../../src/logging/internal';
 
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}): Response =>
@@ -337,6 +337,91 @@ describe('request logging', () => {
     expect(calls).toHaveLength(1);
     expect(entries).toHaveLength(1);
     expect(entries[0]?.url).toBe('https://api.example.com/api/invoices/7');
+  });
+});
+
+describe('a hand-written logger that throws', () => {
+  const boom: RequestLogger = {
+    start: () => ({
+      finish: () => {
+        throw new Error('finish boom');
+      },
+    }),
+  };
+
+  it('in start leaves the request unchanged', async () => {
+    const logger: RequestLogger = {
+      start: () => {
+        throw new Error('start boom');
+      },
+    };
+    const { api, calls } = rig([ok], { logger });
+    await expect(api.table('invoices').list()).resolves.toMatchObject({ data: [{ id: 1 }] });
+    expect(calls).toHaveLength(1);
+  });
+
+  it('in finish on the success path returns the result', async () => {
+    const { api, calls } = rig([() => json({ success: true, data: { id: 9 } }, 201)], { logger: boom, retry: { maxAttempts: 2, backoffMs: 1, jitter: false } });
+    // a POST that succeeds is neither retried nor sent twice
+    await expect(api.request({ method: 'POST', path: 'invoices', body: { ref_number: 'INV-1' }, retry: true })).resolves.toMatchObject({ data: { id: 9 } });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.init.method).toBe('POST');
+  });
+
+  it('in finish on the error path rethrows the original error', async () => {
+    // a failing status: the configured retry still happens, then the original error is thrown
+    const a = rig([() => json({ message: 'down' }, 503)], { logger: boom, retry: { maxAttempts: 1, backoffMs: 1, jitter: false } });
+    await expect(a.api.table('invoices').list()).rejects.toMatchObject({ status: 503, code: 'server' });
+    expect(a.calls).toHaveLength(2);
+
+    // a network failure: the configured retry still happens and its success is returned
+    const b = rig(
+      [
+        () => {
+          throw new TypeError('fetch failed');
+        },
+        ok,
+      ],
+      { logger: boom, retry: { maxAttempts: 1, backoffMs: 1, jitter: false } },
+    );
+    await expect(b.api.table('invoices').list()).resolves.toMatchObject({ data: [{ id: 1 }] });
+    expect(b.calls).toHaveLength(2);
+
+    // without retry the caller gets the original transport error, not the logger's
+    const c = rig(
+      [
+        () => {
+          throw new TypeError('fetch failed');
+        },
+      ],
+      { logger: boom },
+    );
+    await expect(c.api.table('invoices').list()).rejects.toMatchObject({ code: 'network' });
+
+    // a 401 refresh retry still happens
+    let refreshed = false;
+    const d = rig([() => json({ message: 'Unauthenticated.' }, 401), ok], {
+      logger: boom,
+      auth: {
+        getHeaders: async () => ({ Authorization: refreshed ? 'Bearer new' : 'Bearer old' }),
+        handleUnauthorized: async () => {
+          refreshed = true;
+          return true;
+        },
+      },
+    });
+    await expect(d.api.table('invoices').list()).resolves.toMatchObject({ data: [{ id: 1 }] });
+    expect(d.calls).toHaveLength(2);
+  });
+});
+
+describe('logger options', () => {
+  it('an unknown mode behaves as perRequest', async () => {
+    const { api, entries } = rig([ok], { logMode: 'Al' as LogMode });
+    await api.table('invoices').list();
+    expect(entries).toHaveLength(0);
+    await api.table('invoices').list({}, { log: true });
+    expect(entries).toHaveLength(1);
   });
 });
 
