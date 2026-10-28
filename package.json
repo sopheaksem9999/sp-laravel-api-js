@@ -45,6 +45,9 @@
       ],
       "docs": [
         "./dist/docs.d.ts"
+      ],
+      "logging": [
+        "./dist/logging.d.ts"
       ]
     }
   },
@@ -127,6 +130,16 @@
       "require": {
         "types": "./dist/docs.d.cts",
         "default": "./dist/docs.cjs"
+      }
+    },
+    "./logging": {
+      "import": {
+        "types": "./dist/logging.d.ts",
+        "default": "./dist/logging.js"
+      },
+      "require": {
+        "types": "./dist/logging.d.cts",
+        "default": "./dist/logging.cjs"
       }
     }
   },

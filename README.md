@@ -83,20 +83,21 @@ Other table methods: `update` (PUT), `patch`, `remove`, `restore`, `upsert`, `ag
 
 ## Request logging
 
-Off by default and silent unless you give the client a sink. The package never writes output itself (no `console` call inside it); the sink is yours. Setup is a `logger` and, optionally, a `logMode`:
+Off by default and silent unless you give the client a logger. It lives in its own subpath, so it adds nothing to the main entry unless you import it. The package never writes output itself (no `console` call inside it); the sink is yours.
 
 ```ts
 // typecheck
 import { createApi } from '@sokpheak/sp-laravel-api';
+import { createLogger } from '@sokpheak/sp-laravel-api/logging';
 
 const api = createApi({
   baseUrl: 'https://api.example.com/api/v2',
-  logger: (entry) => console.log(entry.method, entry.url, entry.status, `${entry.durationMs}ms`, `attempt ${entry.attempt}`),
-  logMode: 'perRequest', // default once a logger exists: only calls that opt in are logged. 'all' logs every call, 'off' none.
+  // mode: 'perRequest' (default: only calls that opt in), 'all' (every call) or 'off'
+  logger: createLogger({ sink: (entry) => console.log(entry.method, entry.url, entry.status, `${entry.durationMs}ms`, `attempt ${entry.attempt}`) }),
 });
 ```
 
-Opt in per call on any table method, `rpc` or `fn` (the option is never sent to the server). `log: true` logs method, URL, status, duration, request id, attempt and the error `code` / `errorCode`; headers and bodies appear only when asked for:
+Opt in per call on any table method (including `cursorPagination({ log })`), `rpc` or `fn` (the option is never sent to the server). `log: true` logs method, URL, status, duration, request id, attempt and the error `code` / `errorCode`; headers and bodies appear only when asked for:
 
 ```ts
 // typecheck
@@ -108,9 +109,9 @@ await api.rpc('reports/summary', { log: { headers: true, bodies: true } });
 
 One entry is produced per HTTP attempt, so a 401 refresh retry or a configured `retry` shows up as its own entry with the next `attempt` (1-based). A call that fails without a response (network error, timeout, abort) still produces an entry with `status: null` and the error `code`.
 
-- Redaction cannot be switched off, not by `headers` or `bodies`. The `Authorization`, `Cookie`, `Set-Cookie` and `X-CSRF-Token` headers and the tenant header are shown as `<redacted>`; body and query keys `password`, `access_token`, `refresh_token`, `token`, `code`, `otp`, `secret`, `api_key` and any key ending in `_token` are replaced by `<redacted>` at any depth.
-- Bodies are cut at 2048 characters; binary bodies are shown as `<N bytes>`, `FormData` and `Blob` as `<multipart>`, streams as `<stream>`. A text, binary or streamed response body is never read a second time or buffered for logging.
-- Paths and ids in URLs are logged verbatim (`/invoices/42`): do not put secrets in a path.
+- Redaction cannot be switched off, not by `headers` or `bodies`. A header is shown as `<redacted>` when its name contains `auth`, `token`, `key`, `secret`, `cookie`, `session`, `csrf`, `xsrf`, `password` or `credential`, and for the tenant header; URL-valued headers (`Location`, `Content-Location`, `Referer`, `Origin`) have their query redacted. A body or query key is redacted, at any depth, when (ignoring case, `-` and `_`) it is `password`, `secret`, `code`, `otp`, `jwt`, `token`, `apikey`, `accesstoken` or `refreshtoken`, ends with `token`, `secret`, `password` or `apikey`, or starts with `password`.
+- Caveats: only those names and patterns are redacted. Plain-text bodies and JSON stringified inside a string value are not scanned. Paths and ids in URLs and URL fragments are logged verbatim (`/invoices/42`): do not put secrets there.
+- Bodies are cut at 2048 characters (`maxBodyLength`); binary bodies are shown as `<N bytes>`, `FormData` and `Blob` as `<multipart>`, streams as `<stream>`. A response body is never read a second time or buffered for logging.
 - The sink runs inline, on the request path: keep it quick and hand slow work to a queue. A sink that throws, or returns a rejected promise, is ignored and never changes the result of the call.
 - `debug` is a different option: it asks the server for diagnostics (`X-Debug`).
 

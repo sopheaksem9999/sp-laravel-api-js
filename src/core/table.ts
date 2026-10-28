@@ -3,7 +3,7 @@ import { buildPage, createCursorPagination } from './page';
 import type { CursorPagination, CursorPaginationOptions, Page } from './page';
 import type { AggregateRow, AggregateSpec, Query, SelectItem, Where } from './query-types';
 import type { Api } from './create-api';
-import type { LogOption } from './logging';
+import type { LogOption } from './log-types';
 import type { createRequester } from './request';
 
 export type { CursorPagination, CursorPaginationOptions, Page } from './page';

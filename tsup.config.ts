@@ -12,6 +12,7 @@ export default defineConfig([
       webhooks: 'src/webhooks/index.ts',
       realtime: 'src/realtime/index.ts',
       docs: 'src/docs/index.ts',
+      logging: 'src/logging/index.ts',
     },
     // Share core code (SpApiError) between entries in CJS too, so `instanceof` works across subpaths.
     splitting: true,

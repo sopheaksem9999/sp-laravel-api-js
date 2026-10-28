@@ -1,3 +1,4 @@
+import type { LogOption } from './log-types';
 import type { Query } from './query-types';
 
 /** One page of rows plus cursors. `next` is null at the end of the data. */
@@ -35,6 +36,8 @@ export interface CursorPaginationOptions {
   signal?: AbortSignal;
   headers?: Record<string, string>;
   timeoutMs?: number;
+  /** Logs every page request (`true`, or `{ headers?, bodies? }`); needs a `logger` on the client. */
+  log?: LogOption;
 }
 
 /** High-level cursor pagination boundary controller. */
@@ -57,11 +60,11 @@ export interface CursorPagination<T> {
  * nextPage, and prevPage navigation.
  */
 export function createCursorPagination<T>(
-  table: { list(q?: Query, o?: { signal?: AbortSignal; headers?: Record<string, string>; timeoutMs?: number }): Promise<Page<T>> },
+  table: { list(q?: Query, o?: { signal?: AbortSignal; headers?: Record<string, string>; timeoutMs?: number; log?: LogOption }): Promise<Page<T>> },
   options?: CursorPaginationOptions,
 ): CursorPagination<T> {
-  const { query: baseQuery = {}, perPage, signal, headers, timeoutMs } = options ?? {};
-  const callOpts = { signal, headers, timeoutMs };
+  const { query: baseQuery = {}, perPage, signal, headers, timeoutMs, log } = options ?? {};
+  const callOpts = { signal, headers, timeoutMs, log };
 
   return {
     async firstPage(): Promise<Page<T>> {

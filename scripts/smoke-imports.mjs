@@ -21,6 +21,7 @@ const EXPECTED = {
   './permissions': { function: ['permissions'] },
   './webhooks': { function: ['webhooks', 'verifyWebhook', 'parseWebhook'] },
   './realtime': { function: ['realtime'] },
+  './logging': { function: ['createLogger'] },
   './docs': { function: ['docs', 'capabilities'] },
 };
 

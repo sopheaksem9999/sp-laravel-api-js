@@ -14,7 +14,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 // ambient stubs below; a block's own declarations shadow them. Node-only (fs, the TypeScript compiler API).
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const MODULES = ['attachments', 'audit', 'bulk', 'docs', 'permissions', 'realtime', 'webhooks'];
+const MODULES = ['attachments', 'audit', 'bulk', 'docs', 'logging', 'permissions', 'realtime', 'webhooks'];
 const FILES = ['README.md', ...MODULES.map((m) => `src/${m}/README.md`)];
 
 interface Block {

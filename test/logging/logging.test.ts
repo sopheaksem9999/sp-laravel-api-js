@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createApi } from '../../src/core/create-api';
 import type { ApiConfig } from '../../src/core/request';
-import { sanitiseRequestId } from '../../src/core/logging';
-import type { LogEntry } from '../../src/core/logging';
+import { createLogger } from '../../src/logging';
+import type { LogEntry, LogMode } from '../../src/logging';
+import { sanitiseRequestId } from '../../src/logging/internal';
 
 const json = (body: unknown, status = 200, headers: Record<string, string> = {}): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json', ...headers } });
@@ -13,7 +14,12 @@ interface Rig {
   calls: { url: string; init: RequestInit }[];
 }
 
-function rig(responses: (() => Response | Promise<Response>)[], cfg: Partial<ApiConfig> = {}, sink?: (e: LogEntry) => unknown): Rig {
+function rig(
+  responses: (() => Response | Promise<Response>)[],
+  opts: Partial<ApiConfig> & { logMode?: LogMode } = {},
+  sink?: (e: LogEntry) => unknown,
+): Rig {
+  const { logMode, ...cfg } = opts;
   const entries: LogEntry[] = [];
   const calls: { url: string; init: RequestInit }[] = [];
   let i = 0;
@@ -25,10 +31,13 @@ function rig(responses: (() => Response | Promise<Response>)[], cfg: Partial<Api
   const api = createApi({
     baseUrl: 'https://api.example.com/api',
     fetch,
-    logger: (e) => {
-      entries.push(e);
-      return sink?.(e) as void;
-    },
+    logger: createLogger({
+      mode: logMode,
+      sink: (e) => {
+        entries.push(e);
+        return sink?.(e) as void;
+      },
+    }),
     ...cfg,
   });
   return { api, entries, calls };
@@ -50,7 +59,6 @@ describe('request logging', () => {
     const calls: RequestInit[] = [];
     const api = createApi({
       baseUrl: 'https://api.example.com/api',
-      logMode: 'all',
       fetch: async (_u, init) => {
         calls.push(init ?? {});
         return ok();
@@ -167,8 +175,7 @@ describe('request logging', () => {
     const fetchStarted = new Promise<void>((r) => (started = r));
     const api = createApi({
       baseUrl: 'https://api.example.com/api',
-      logger: (e) => void entries.push(e),
-      logMode: 'all',
+      logger: createLogger({ mode: 'all', sink: (e) => void entries.push(e) }),
       fetch: (_u, init) =>
         new Promise<Response>((_res, rej) => {
           init?.signal?.addEventListener('abort', () => rej(init.signal?.reason));
@@ -367,5 +374,32 @@ describe('request id sanitising', () => {
     for (const bad of ['\n', '\r', '\u001b', '\u2028', '\u2029']) expect(id.includes(bad)).toBe(false);
     expect([...id].length).toBeLessThanOrEqual(128);
     expect(id.startsWith('id-1[ERROR] forged')).toBe(true);
+  });
+});
+
+describe('request logging, hardening', () => {
+  it('redacts secret-looking headers and URL-valued response headers in an entry', async () => {
+    const { api, entries } = rig(
+      [() => json({ success: true, data: [] }, 200, { Location: 'https://api.example.com/next?token=LOCTOKEN&a=1', 'X-Session-Id': 'SESS1' })],
+      { logMode: 'all', auth: { getHeaders: async () => ({ 'X-API-Key': 'APIKEY1', 'Proxy-Authorization': 'PROXY1', 'X-Auth-Token': 'AT1' }) } },
+    );
+    await api.table('invoices').list({}, { log: { headers: true }, headers: { 'X-XSRF-Token': 'XS1' } });
+    const all = JSON.stringify(entries[0]);
+    for (const s of ['LOCTOKEN', 'SESS1', 'APIKEY1', 'PROXY1', 'AT1', 'XS1']) expect(all).not.toContain(s);
+    expect(entries[0]?.responseHeaders?.location).toBe('https://api.example.com/next?token=<redacted>&a=1');
+  });
+
+  it('cursorPagination forwards the log option to every list call', async () => {
+    const { api, entries, calls } = rig([() => json({ success: true, data: [{ id: 1 }], meta: { next_cursor: 'n1', prev_cursor: 'p1' } })], { logMode: 'perRequest' });
+    const cp = api.table('invoices').cursorPagination({ perPage: 1, log: true });
+    const first = await cp.firstPage();
+    await cp.lastPage();
+    await cp.nextPage(first);
+    await cp.prevPage(first);
+    expect(entries).toHaveLength(4);
+    for (const c of calls) expect(c.url).not.toContain('log');
+    const quiet = api.table('invoices').cursorPagination({ perPage: 1 });
+    await quiet.firstPage();
+    expect(entries).toHaveLength(4);
   });
 });

@@ -1,5 +1,5 @@
 {
-  "_note": "Canonical redaction vectors for optional request logging. Shared byte for byte by sp-laravel-api-js (test/vectors/log-redaction.json) and sp-laravel-api-dart (test/vectors/log_redaction.json). The placeholder is the text <redacted>; the truncation limit is 2048 UTF-16 code units, and a longer body keeps its first 2048 and appends the marker …[truncated]. headers: input.headers is a map of header name to value and input.tenantHeader is the configured tenant header name or null; expected is the map after redaction (names keep the case they were given; sensitive names are matched case-insensitively). bodies: input is any JSON value; a JSON string is a body that was sent as text: a string holding a JSON object or array is parsed, redacted and re-serialised compactly with no spaces and keys in the original order, and a url-encoded string has its sensitive values replaced; any other string is only truncated. Sensitive keys match case-insensitively with - and _ ignored (password, access_token, refresh_token, token, code, otp, secret, api_key) or end in _token (with - read as _); a sensitive key has its whole value replaced, at any depth and inside arrays. urls: input is a full URL; query values of sensitive keys (also inside brackets) become the placeholder, credentials in the authority become the placeholder, and paths and fragments are kept.",
+  "_note": "Canonical redaction vectors for optional request logging. Shared byte for byte by sp-laravel-api-js (test/vectors/log-redaction.json) and sp-laravel-api-dart (test/vectors/log_redaction.json). The placeholder is the text <redacted>. NORMALISATION: a key is lower-cased and every - and _ is removed. A key is sensitive when its normalised form equals password, secret, code, otp, jwt, token, apikey, accesstoken or refreshtoken, OR ends with token, secret, password or apikey, OR starts with password. Other keys that merely contain such a word (error_code, tokens_left, zipcode, primary_key, next_cursor, secretary) stay visible. TRUNCATION: the limit is 2048 UTF-16 code units; a longer body keeps its first 2048 (one fewer when the cut would split a surrogate pair) and appends the marker …[truncated]. headers: input.headers is a map of header name to value and input.tenantHeader is the configured tenant header name or null; expected is the map after redaction (names keep the case they were given). A header value becomes the placeholder when its lower-cased name equals the tenant header lower-cased, equals authorization, cookie, set-cookie or x-csrf-token, or contains any of auth, token, key, secret, cookie, session, csrf, xsrf, password, credential. The values of location, content-location, referer, referrer and origin are URLs and go through the urls rule instead. bodies: input is any JSON value; a JSON string is a body that was sent as text: a string holding a JSON object or array is parsed, redacted and re-serialised compactly with no spaces and keys in the original order, and a url-encoded string has its sensitive values replaced; any other string is only truncated and is NOT scanned for secrets. A sensitive key has its whole value replaced, at any depth and inside arrays; JSON stringified inside a string value is not scanned. urls: input is a full or relative URL; query values of sensitive keys (also inside brackets, and percent-decoded) become the placeholder, credentials in the authority become the placeholder, and paths and fragments are kept verbatim.",
   "headers": [
     {
       "name": "Authorization header",
@@ -176,6 +176,270 @@
         "tenantHeader": null
       },
       "expected": {}
+    },
+    {
+      "name": "header Proxy-Authorization is redacted by name pattern",
+      "input": {
+        "headers": {
+          "Proxy-Authorization": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Proxy-Authorization": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header X-API-Key is redacted by name pattern",
+      "input": {
+        "headers": {
+          "X-API-Key": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-API-Key": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header X-Auth-Token is redacted by name pattern",
+      "input": {
+        "headers": {
+          "X-Auth-Token": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-Auth-Token": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header X-XSRF-Token is redacted by name pattern",
+      "input": {
+        "headers": {
+          "X-XSRF-Token": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-XSRF-Token": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header X-Session-Id is redacted by name pattern",
+      "input": {
+        "headers": {
+          "X-Session-Id": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-Session-Id": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header X-Custom-Auth is redacted by name pattern",
+      "input": {
+        "headers": {
+          "X-Custom-Auth": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-Custom-Auth": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header X-Client-Secret is redacted by name pattern",
+      "input": {
+        "headers": {
+          "X-Client-Secret": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-Client-Secret": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header X-Password is redacted by name pattern",
+      "input": {
+        "headers": {
+          "X-Password": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-Password": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header X-Credentials is redacted by name pattern",
+      "input": {
+        "headers": {
+          "X-Credentials": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-Credentials": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header Idempotency-Key is redacted by name pattern",
+      "input": {
+        "headers": {
+          "Idempotency-Key": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Idempotency-Key": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header x-api-key is redacted by name pattern",
+      "input": {
+        "headers": {
+          "x-api-key": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "x-api-key": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header PROXY-AUTHORIZATION is redacted by name pattern",
+      "input": {
+        "headers": {
+          "PROXY-AUTHORIZATION": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "PROXY-AUTHORIZATION": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "headers that only look similar stay visible",
+      "input": {
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache",
+          "Keep-Alive": "timeout=5",
+          "X-Request-ID": "r-1",
+          "Retry-After": "3",
+          "Content-Length": "12"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Cache-Control": "no-cache",
+        "Keep-Alive": "timeout=5",
+        "X-Request-ID": "r-1",
+        "Retry-After": "3",
+        "Content-Length": "12"
+      }
+    },
+    {
+      "name": "Location header query is redacted",
+      "input": {
+        "headers": {
+          "Location": "https://api.example.com/next?token=abc123&a=1"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Location": "https://api.example.com/next?token=<redacted>&a=1"
+      }
+    },
+    {
+      "name": "location lower-case relative url",
+      "input": {
+        "headers": {
+          "location": "/invoices?access_token=abc&page=2"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "location": "/invoices?access_token=<redacted>&page=2"
+      }
+    },
+    {
+      "name": "Content-Location header query is redacted",
+      "input": {
+        "headers": {
+          "Content-Location": "https://api.example.com/x?api_key=k1"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Content-Location": "https://api.example.com/x?api_key=<redacted>"
+      }
+    },
+    {
+      "name": "Referer header query is redacted",
+      "input": {
+        "headers": {
+          "Referer": "https://app.example.com/page?code=c1&tab=2"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Referer": "https://app.example.com/page?code=<redacted>&tab=2"
+      }
+    },
+    {
+      "name": "Origin header is kept",
+      "input": {
+        "headers": {
+          "Origin": "https://app.example.com"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Origin": "https://app.example.com"
+      }
+    },
+    {
+      "name": "Location without a query is unchanged",
+      "input": {
+        "headers": {
+          "Location": "https://api.example.com/invoices/42"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Location": "https://api.example.com/invoices/42"
+      }
     }
   ],
   "bodies": [
@@ -510,6 +774,200 @@
       }
     },
     {
+      "name": "key clientSecret is redacted",
+      "input": {
+        "clientSecret": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "clientSecret": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key client_secret is redacted",
+      "input": {
+        "client_secret": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "client_secret": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key apiSecret is redacted",
+      "input": {
+        "apiSecret": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "apiSecret": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key authToken is redacted",
+      "input": {
+        "authToken": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "authToken": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key idToken is redacted",
+      "input": {
+        "idToken": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "idToken": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key bearerToken is redacted",
+      "input": {
+        "bearerToken": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "bearerToken": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key jwt is redacted",
+      "input": {
+        "jwt": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "jwt": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key JWT is redacted",
+      "input": {
+        "JWT": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "JWT": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key password_confirmation is redacted",
+      "input": {
+        "password_confirmation": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "password_confirmation": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key passwordConfirmation is redacted",
+      "input": {
+        "passwordConfirmation": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "passwordConfirmation": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key new-password is redacted",
+      "input": {
+        "new-password": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "new-password": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key next_page_token is redacted",
+      "input": {
+        "next_page_token": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "next_page_token": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key x-api-key is redacted",
+      "input": {
+        "x-api-key": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "x-api-key": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key ApiKey is redacted",
+      "input": {
+        "ApiKey": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "ApiKey": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key apiKey is redacted",
+      "input": {
+        "apiKey": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "apiKey": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "keys that must stay visible",
+      "input": {
+        "next_cursor": "c1",
+        "prev_cursor": null,
+        "primary_key": "id",
+        "error_code": 10002,
+        "tokens_left": 3,
+        "zipcode": "1",
+        "encoded": "y",
+        "secretary": "Ann",
+        "keyword": "k",
+        "monkey": "m",
+        "per_page": 20
+      },
+      "expected": {
+        "next_cursor": "c1",
+        "prev_cursor": null,
+        "primary_key": "id",
+        "error_code": 10002,
+        "tokens_left": 3,
+        "zipcode": "1",
+        "encoded": "y",
+        "secretary": "Ann",
+        "keyword": "k",
+        "monkey": "m",
+        "per_page": 20
+      }
+    },
+    {
       "name": "sensitive value that is an object is replaced whole",
       "input": {
         "token": {
@@ -687,21 +1145,6 @@
       }
     },
     {
-      "name": "keys that only contain a sensitive word are unchanged",
-      "input": {
-        "tokens_left": 3,
-        "passwords": "x",
-        "encoded": "y",
-        "zipcode": "1"
-      },
-      "expected": {
-        "tokens_left": 3,
-        "passwords": "x",
-        "encoded": "y",
-        "zipcode": "1"
-      }
-    },
-    {
       "name": "plain text that is not JSON",
       "input": "hello world",
       "expected": "hello world"
@@ -807,6 +1250,41 @@
       "name": "query key ending in _token",
       "input": "https://api.example.com/api/x?device_token=v1&a=1",
       "expected": "https://api.example.com/api/x?device_token=<redacted>&a=1"
+    },
+    {
+      "name": "query key authToken",
+      "input": "https://api.example.com/api/x?authToken=v1&keep=1",
+      "expected": "https://api.example.com/api/x?authToken=<redacted>&keep=1"
+    },
+    {
+      "name": "query key client_secret",
+      "input": "https://api.example.com/api/x?client_secret=v1&keep=1",
+      "expected": "https://api.example.com/api/x?client_secret=<redacted>&keep=1"
+    },
+    {
+      "name": "query key idToken",
+      "input": "https://api.example.com/api/x?idToken=v1&keep=1",
+      "expected": "https://api.example.com/api/x?idToken=<redacted>&keep=1"
+    },
+    {
+      "name": "query key jwt",
+      "input": "https://api.example.com/api/x?jwt=v1&keep=1",
+      "expected": "https://api.example.com/api/x?jwt=<redacted>&keep=1"
+    },
+    {
+      "name": "query key password_confirmation",
+      "input": "https://api.example.com/api/x?password_confirmation=v1&keep=1",
+      "expected": "https://api.example.com/api/x?password_confirmation=<redacted>&keep=1"
+    },
+    {
+      "name": "query key bearerToken",
+      "input": "https://api.example.com/api/x?bearerToken=v1&keep=1",
+      "expected": "https://api.example.com/api/x?bearerToken=<redacted>&keep=1"
+    },
+    {
+      "name": "query keys that must stay visible",
+      "input": "https://api.example.com/api/x?next_cursor=c1&primary_key=id&error_code=3&per_page=5",
+      "expected": "https://api.example.com/api/x?next_cursor=c1&primary_key=id&error_code=3&per_page=5"
     },
     {
       "name": "percent-encoded query key",

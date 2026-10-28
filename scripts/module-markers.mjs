@@ -26,6 +26,7 @@ export const MODULE_MARKERS_BY_MODULE = {
   permissions: ['sp_roles', 'sp_permissions', '_delete'],
   webhooks: ['sp_webhook_endpoints', 'sp_webhook_subscriptions', 'sp_webhook_deliveries', 'x-webhook-event'],
   realtime: ['tenant.global', 'realtime_handler_error'],
+  logging: ['<redacted>', 'content-location'],
   docs: ['docs/openapi.json', 'docs/llms.txt', 'x-sp-realtime'],
 };
 

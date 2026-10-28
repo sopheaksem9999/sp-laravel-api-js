@@ -4,7 +4,7 @@
 
 ### Minor Changes
 
-- Optional, redacted request logging (`logger`, `logMode` on `createApi`; per-call `log: true | { headers?, bodies? }` on table methods, `rpc`, `fn` and `request`). Off by default and silent without a `logger`. One `LogEntry` per HTTP attempt (method, URL with redacted query, status, duration, request id, 1-based attempt, error `code` / `errorCode`). Credentials headers and sensitive body and query keys are always redacted; bodies are cut at 2048 characters; the sink is isolated so a throw or a rejected promise never changes a request result. Exports the `LogEntry`, `LogMode` and `LogOption` types.
+- Optional, redacted request logging in the new `@sokpheak/sp-laravel-api/logging` subpath: `createLogger({ sink, mode?, maxBodyLength? })` passed as `createApi({ logger })`, plus a per-call `log: true | { headers?, bodies? }` on table methods, `cursorPagination`, `rpc`, `fn` and `request`. Off by default and silent without a logger; the main entry only gains the types (`LogEntry`, `LogMode`, `LogOption`, `RequestLogger`). One entry per HTTP attempt (method, URL with redacted query, status, duration, request id, 1-based attempt, error `code` / `errorCode`). Sensitive headers (by name pattern, plus the tenant header and URL-valued headers) and sensitive body and query keys are always redacted; bodies are cut at 2048 characters; the sink is isolated so a throw or a rejected promise never changes a request result.
 
 ## 0.3.0
 

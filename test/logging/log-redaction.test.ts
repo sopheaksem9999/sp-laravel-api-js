@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { redactBody, redactHeaders, redactUrl } from '../../src/core/logging';
+import { redactBody, redactHeaders, redactUrl } from '../../src/logging/internal';
 
 interface Vectors {
   headers: { name: string; input: { headers: Record<string, string>; tenantHeader: string | null }; expected: Record<string, string> }[];
@@ -13,9 +13,9 @@ const vectors = JSON.parse(readFileSync(new URL('../vectors/log-redaction.json',
 
 describe('log redaction vectors', () => {
   it('has vectors for headers, bodies and urls', () => {
-    expect(vectors.headers.length).toBeGreaterThan(10);
-    expect(vectors.bodies.length).toBeGreaterThan(40);
-    expect(vectors.urls.length).toBeGreaterThan(15);
+    expect(vectors.headers.length).toBeGreaterThan(30);
+    expect(vectors.bodies.length).toBeGreaterThan(60);
+    expect(vectors.urls.length).toBeGreaterThan(25);
   });
 
   describe('headers', () => {
@@ -71,6 +71,11 @@ describe('log redaction vectors', () => {
     expect(typeof out).toBe('string');
     expect((out as string).length).toBe(2048 + '…[truncated]'.length);
     expect(out as string).not.toContain('"p"');
+  });
+
+  it('honours a custom maxBodyLength', () => {
+    expect(redactBody('abcdefgh', 4)).toBe('abcd…[truncated]');
+    expect(redactBody({ a: 'x'.repeat(50) }, 10)).toBe('{"a":"xxxx…[truncated]');
   });
 
   it('does not split a surrogate pair at the cut', () => {
