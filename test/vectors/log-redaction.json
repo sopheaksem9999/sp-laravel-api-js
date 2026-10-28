@@ -1,5 +1,5 @@
 {
-  "_note": "Canonical redaction vectors for optional request logging. Shared byte for byte by sp-laravel-api-js (test/vectors/log-redaction.json) and sp-laravel-api-dart (test/vectors/log_redaction.json). The placeholder is the text <redacted>. NORMALISATION: a key is lower-cased and every - and _ is removed. KEYS: a key is sensitive when its normalised form (1) equals password, secret, code, otp, jwt, token, apikey, accesstoken, refreshtoken, pin, pwd, pass, sig, authorization or cookie, OR (2) matches the regular expression (tokens?|secrets?|passwords?|passwd|passphrase|passcode|apikeys?|privatekey|secretkey|clientkey|signingkey|encryptionkey|signature|credential|otp|(otp|verification|auth|mfa|reset|recovery|backup)codes?)$ , OR (3) starts with password. Other keys that merely contain such a word stay visible (error_code, tokens_left, zipcode, primary_key, next_cursor, secretary, idempotency_key, country_code, promo_code, key, status_code, status); credential is singular on purpose, so a credentials key holding an object is walked, not redacted whole. TRUNCATION: the limit is 2048 UTF-16 code units; a longer body keeps its first 2048 (one fewer when the cut would split a surrogate pair) and appends the marker …[truncated]. headers: input.headers is a map of header name to value and input.tenantHeader is the configured tenant header name or null; expected is the map after redaction (names keep the case they were given). A header value becomes the placeholder when its lower-cased name equals the tenant header lower-cased, equals authorization, cookie, set-cookie or x-csrf-token, or contains any of auth, token, key, secret, cookie, session, csrf, xsrf, password, credential, signature, pass, otp, jwt, bearer. Otherwise the values of location, content-location, referer, referrer and origin are URLs and go through the urls rule; in a link value every URL between < and > goes through the urls rule; in a refresh value the text after the first url= (any case, spaces allowed around =) goes through the urls rule, or the whole value when there is no url=. bodies: input is any JSON value; a JSON string is a body that was sent as text: a string holding a JSON object or array is parsed, redacted and re-serialised compactly with no spaces and keys in the original order, and a url-encoded string has its sensitive values replaced (the query rule below); any other string is only truncated and is NOT scanned for secrets. A sensitive key has its whole value replaced, at any depth and inside arrays; JSON stringified inside a string value is not scanned. urls: input is a full or relative URL. QUERY RULE (applied to the query and to the fragment): the text is split on &; parts without = are kept. A part key=value with a non-empty key has its value replaced when the percent-decoded key, or any part of it split on [ ] , and . (optional spaces around them; bracket segments, comma-joined anyOf columns and dotted relation paths such as sessions.pin), is a sensitive key. FILTER GROUPS: when the percent-decoded key matches ^(not\\.)?(and|or)$ the percent-decoded value is split on ( ) and , into items; an item with at least one dot is split on . and each segment trimmed; the segments before the first operator word are the column path (operator words: not, is, is_not, eq, neq, gt, gte, lt, lte, in, not_in, between, not_between, like, ilike, not_like, not_ilike, contains, starts_with, not_starts_with, ends_with, not_ends_with, regex, not_regex, match, not_match, imatch, not_imatch, date_eq, date_neq, date_gt, date_gte, date_lt, date_lte, empty, not_empty, and fts, plfts, phfts, wfts, cs, cd, ov, sl, sr, nxl, nxr, adj with their not_ forms); with no operator word every segment counts. The whole value is replaced when any column-path segment is a sensitive key, at any nesting depth (sessions.token.eq.x and a.b.pin.eq.x are redacted; status.eq.token is kept because token comes after the operator; an item without a dot, such as a list value, is not a column). SELECT: when the percent-decoded key is select, every embed filter column (the text between the start of the value, a ( or a , and the next =, dots allowed) is split on . and each segment trimmed; the whole value is replaced when any segment is a sensitive key, at any depth; a select that only names a sensitive column (no =) is kept. TRIMMING: a trimmed segment loses its leading and trailing characters of the ECMAScript \\s class (the same set in JS and Dart). DEPTH: a body, or a JSON string body, nested more than 100 arrays/objects deep becomes the text <unavailable> as a whole. The redaction is a denylist of key names, not a guarantee. AUTHORITY: in a URL with a scheme, everything between :// and the last @ before the first /, ? or # is replaced by the placeholder. Paths are kept verbatim; a fragment is kept except for its key=value parts. perf: each case builds its input by concatenating, for every [text, count] pair of input.parts, text repeated count times (likewise expected.parts); kind url goes through the urls rule, kind header puts the input under input.header and expects the redacted value, kind body passes the input string as a body, kind bodyJson parses the input as JSON and passes the result as a body. The result must equal the expected text and take at most maxMs milliseconds (generous; every rule must stay linear in the input length).",
+  "_note": "Canonical redaction vectors for optional request logging. Shared byte for byte by sp-laravel-api-js (test/vectors/log-redaction.json) and sp-laravel-api-dart (test/vectors/log_redaction.json). The placeholder is the text <redacted>. NORMALISATION: a key is lower-cased and every - and _ is removed. KEYS: a key is sensitive when its normalised form (1) equals password, secret, code, otp, jwt, token, apikey, accesstoken, refreshtoken, pin, pwd, pass, sig, authorization or cookie, OR (2) matches the regular expression (tokens?|secrets?|passwords?|passwd|passphrase|passcode|apikeys?|privatekey|secretkey|clientkey|signingkey|encryptionkey|signature|credential|otp|(otp|verification|auth|mfa|reset|recovery|backup)codes?)$ , OR (3) starts with password. Other keys that merely contain such a word stay visible (error_code, tokens_left, zipcode, primary_key, next_cursor, secretary, idempotency_key, country_code, promo_code, key, status_code, status); credential is singular on purpose, so a credentials key holding an object is walked, not redacted whole. TRUNCATION: the limit is 2048 UTF-16 code units; a longer body keeps its first 2048 (one fewer when the cut would split a surrogate pair) and appends the marker …[truncated]. headers: input.headers is a map of header name to value and input.tenantHeader is the configured tenant header name or null; expected is the map after redaction (names keep the case they were given). A header value becomes the placeholder when its lower-cased name equals the tenant header lower-cased, equals authorization, cookie, set-cookie or x-csrf-token, or contains any of auth, token, key, secret, cookie, session, csrf, xsrf, password, credential, signature, pass, otp, jwt, bearer. Otherwise the values of location, content-location, referer, referrer and origin are URLs and go through the urls rule; in a link value every URL between < and > goes through the urls rule; in a refresh value the text after the first url= (any case, spaces allowed around =) goes through the urls rule, or the whole value when there is no url=. bodies: input is any JSON value; a JSON string is a body that was sent as text: a string that, once leading and trailing characters of the \\s class (U+FEFF and U+00A0 included) are removed, is a JSON object or array is parsed, redacted and re-serialised compactly with no spaces and keys in the original order, and a url-encoded string has its sensitive values replaced (the query rule below); any other string is only truncated and is NOT scanned for secrets. A sensitive key has its whole value replaced, at any depth and inside arrays; JSON stringified inside a string value is not scanned. urls: input is a full or relative URL. QUERY RULE (applied to the query and to the fragment): the text is split on &; parts without = are kept. A part key=value with a non-empty key has its value replaced when the percent-decoded key, or any part of it split on [ ] , and . (optional spaces around them; bracket segments, comma-joined anyOf columns and dotted relation paths such as sessions.pin), is a sensitive key. FILTER GROUPS: when the percent-decoded key matches ^(not\\.)?(and|or)$ the percent-decoded value is split on ( ) and , into items; an item with at least one dot is split on . and each segment trimmed; the segments before the first operator word are the column path (operator words: not, is, is_not, eq, neq, gt, gte, lt, lte, in, not_in, between, not_between, like, ilike, not_like, not_ilike, contains, starts_with, not_starts_with, ends_with, not_ends_with, regex, not_regex, match, not_match, imatch, not_imatch, date_eq, date_neq, date_gt, date_gte, date_lt, date_lte, empty, not_empty, and fts, plfts, phfts, wfts, cs, cd, ov, sl, sr, nxl, nxr, adj with their not_ forms); with no operator word every segment counts. The whole value is replaced when any column-path segment is a sensitive key, at any nesting depth (sessions.token.eq.x and a.b.pin.eq.x are redacted; status.eq.token is kept because token comes after the operator; an item without a dot, such as a list value, is not a column). SELECT: when the percent-decoded key is select, every embed filter column (the text between the start of the value, a ( or a , and the next =, dots allowed) is split on . and each segment trimmed; the whole value is replaced when any segment is a sensitive key, at any depth; a select that only names a sensitive column (no =) is kept. PERCENT-DECODING (keys, group and select values, nested URLs): every %XX run that forms valid UTF-8 is decoded (as decodeURIComponent does); an invalid or truncated sequence (%E9 alone, %ZZ, a trailing %) and raw non-ASCII text are kept as they are, and the rest of the text is still decoded. NESTED URLS: a query or fragment value that, percent-decoded, starts with http:// or https:// (any case) goes through the urls rule itself, at most 2 levels deep; when that changes it, the value is replaced by the redacted, decoded URL, otherwise the part is kept as it was. TRIMMING: a trimmed segment loses its leading and trailing characters of the ECMAScript \\s class (the same set in JS and Dart). OBJECTS: only plain data is walked (JSON objects and arrays, strings, numbers, booleans, null); any other object a body holds in a language (a class instance, a model with toJson/toJSON, a Set, a Map, a date) becomes the text <object> (tested per language, not in this file). DEPTH: a body, or a JSON string body, nested more than 100 arrays/objects deep becomes the text <unavailable> as a whole. The redaction is a denylist of key names, not a guarantee. AUTHORITY: in a URL with a scheme, everything between :// and the last @ before the first /, ? or # is replaced by the placeholder. Paths are kept verbatim; a fragment is kept except for its key=value parts. perf: each case builds its input by concatenating, for every [text, count] pair of input.parts, text repeated count times (likewise expected.parts); kind url goes through the urls rule, kind header puts the input under input.header and expects the redacted value, kind body passes the input string as a body, kind bodyJson parses the input as JSON and passes the result as a body. The result must equal the expected text and take at most maxMs milliseconds (generous; every rule must stay linear in the input length).",
   "headers": [
     {
       "name": "Authorization header",
@@ -2442,6 +2442,31 @@
       "name": "a JSON string body nested too deep is not echoed (secret first)",
       "input": "{\"password\":\"p1\",\"a\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}",
       "expected": "<unavailable>"
+    },
+    {
+      "name": "JSON text with a leading BOM is parsed",
+      "input": "﻿{\"password\":\"x\",\"keep\":1}",
+      "expected": "{\"password\":\"<redacted>\",\"keep\":1}"
+    },
+    {
+      "name": "JSON text with a leading NBSP is parsed",
+      "input": " {\"token\":\"x\"}",
+      "expected": "{\"token\":\"<redacted>\"}"
+    },
+    {
+      "name": "JSON text with a trailing line separator is parsed",
+      "input": "[{\"otp\":\"1\"}] ",
+      "expected": "[{\"otp\":\"<redacted>\"}]"
+    },
+    {
+      "name": "text with a leading BOM that is not JSON is kept",
+      "input": "﻿hello {token}",
+      "expected": "﻿hello {token}"
+    },
+    {
+      "name": "url-encoded body with a nested URL",
+      "input": "next=https://u:pw@evil.example.com/?token=S&a=1",
+      "expected": "next=https://<redacted>@evil.example.com/?token=<redacted>&a=1"
     }
   ],
   "urls": [
@@ -2789,6 +2814,66 @@
       "name": "select embed filter with a visible dotted column is unchanged",
       "input": "https://api.example.com/api/invoices?select=id,items(id,product.name=eq.x)",
       "expected": "https://api.example.com/api/invoices?select=id,items(id,product.name=eq.x)"
+    },
+    {
+      "name": "select with raw non-ASCII after an encoded embed filter",
+      "input": "https://api.example.com/api/users?select=id,s(token%3Deq.é)",
+      "expected": "https://api.example.com/api/users?select=<redacted>"
+    },
+    {
+      "name": "group with raw non-ASCII and an encoded dotted column",
+      "input": "https://api.example.com/api/users?or=(name.eq.José,sessions%2Epin.eq.S)",
+      "expected": "https://api.example.com/api/users?or=<redacted>"
+    },
+    {
+      "name": "key with raw non-ASCII and an encoded bracket segment",
+      "input": "https://api.example.com/api/x?café%5Btoken%5D=S&a=1",
+      "expected": "https://api.example.com/api/x?café%5Btoken%5D=<redacted>&a=1"
+    },
+    {
+      "name": "key with an invalid escape before a valid one",
+      "input": "https://api.example.com/api/x?%ZZ%5Btoken%5D=S",
+      "expected": "https://api.example.com/api/x?%ZZ%5Btoken%5D=<redacted>"
+    },
+    {
+      "name": "key with a lone %E9 (invalid UTF-8) before a valid escape",
+      "input": "https://api.example.com/api/x?%E9%5Btoken%5D=S",
+      "expected": "https://api.example.com/api/x?%E9%5Btoken%5D=<redacted>"
+    },
+    {
+      "name": "key with a trailing %",
+      "input": "https://api.example.com/api/x?%5Btoken%5D%=S",
+      "expected": "https://api.example.com/api/x?%5Btoken%5D%=<redacted>"
+    },
+    {
+      "name": "group with an invalid escape and an encoded sensitive column",
+      "input": "https://api.example.com/api/x?or=(name.eq.%E9,api%5Ftoken.eq.S)",
+      "expected": "https://api.example.com/api/x?or=<redacted>"
+    },
+    {
+      "name": "valid multi-byte escapes in a visible key are kept",
+      "input": "https://api.example.com/api/x?caf%C3%A9=1&na%C3%AFve%2Bkey=%E9",
+      "expected": "https://api.example.com/api/x?caf%C3%A9=1&na%C3%AFve%2Bkey=%E9"
+    },
+    {
+      "name": "nested URL with credentials and a token in a query value",
+      "input": "https://app.example.com/login?redirect=https://u:p@evil.example.com/?token=S",
+      "expected": "https://app.example.com/login?redirect=https://<redacted>@evil.example.com/?token=<redacted>"
+    },
+    {
+      "name": "percent-encoded nested URL with a code",
+      "input": "https://app.example.com/login?next=https%3A%2F%2Fevil.example.com%2Fcb%3Fcode%3DS&a=1",
+      "expected": "https://app.example.com/login?next=https://evil.example.com/cb?code=<redacted>&a=1"
+    },
+    {
+      "name": "nested URL in a fragment pair",
+      "input": "https://app.example.com/#next=HTTPS://evil.example.com/?access_token=S",
+      "expected": "https://app.example.com/#next=HTTPS://evil.example.com/?access_token=<redacted>"
+    },
+    {
+      "name": "a nested redirect URL without secrets is kept",
+      "input": "https://app.example.com/login?redirect=https%3A%2F%2Fapp.example.com%2Finvoices%3Fpage%3D2&x=https://app.example.com/a?b=1",
+      "expected": "https://app.example.com/login?redirect=https%3A%2F%2Fapp.example.com%2Finvoices%3Fpage%3D2&x=https://app.example.com/a?b=1"
     }
   ],
   "perf": [
@@ -3361,6 +3446,163 @@
         "parts": [
           [
             "<unavailable>",
+            1
+          ]
+        ]
+      },
+      "maxMs": 250
+    },
+    {
+      "name": "nested URLs: 2000 levels of ?r=https://",
+      "kind": "url",
+      "input": {
+        "parts": [
+          [
+            "https://api.example.com/x?r=",
+            1
+          ],
+          [
+            "https://e.example.com/?r=",
+            2000
+          ],
+          [
+            "x",
+            1
+          ]
+        ]
+      },
+      "expected": {
+        "parts": [
+          [
+            "https://api.example.com/x?r=",
+            1
+          ],
+          [
+            "https://e.example.com/?r=",
+            2000
+          ],
+          [
+            "x",
+            1
+          ]
+        ]
+      },
+      "maxMs": 250
+    },
+    {
+      "name": "nested URL with a 50000-character authority",
+      "kind": "url",
+      "input": {
+        "parts": [
+          [
+            "https://api.example.com/x?r=https://u:p@",
+            1
+          ],
+          [
+            "a",
+            50000
+          ]
+        ]
+      },
+      "expected": {
+        "parts": [
+          [
+            "https://api.example.com/x?r=https://<redacted>@",
+            1
+          ],
+          [
+            "a",
+            50000
+          ]
+        ]
+      },
+      "maxMs": 250
+    },
+    {
+      "name": "percent-decoding: 50000 invalid escapes in a key",
+      "kind": "url",
+      "input": {
+        "parts": [
+          [
+            "https://api.example.com/x?",
+            1
+          ],
+          [
+            "%E9",
+            50000
+          ],
+          [
+            "%5Btoken%5D=S",
+            1
+          ]
+        ]
+      },
+      "expected": {
+        "parts": [
+          [
+            "https://api.example.com/x?",
+            1
+          ],
+          [
+            "%E9",
+            50000
+          ],
+          [
+            "%5Btoken%5D=<redacted>",
+            1
+          ]
+        ]
+      },
+      "maxMs": 250
+    },
+    {
+      "name": "percent-decoding: 50000 raw non-ASCII characters in a group",
+      "kind": "url",
+      "input": {
+        "parts": [
+          [
+            "https://api.example.com/x?or=(name.eq.",
+            1
+          ],
+          [
+            "é",
+            50000
+          ],
+          [
+            ",sessions%2Epin.eq.S)",
+            1
+          ]
+        ]
+      },
+      "expected": {
+        "parts": [
+          [
+            "https://api.example.com/x?or=<redacted>",
+            1
+          ]
+        ]
+      },
+      "maxMs": 250
+    },
+    {
+      "name": "body: JSON after a 50000-character run of BOM and NBSP",
+      "kind": "body",
+      "input": {
+        "parts": [
+          [
+            "﻿ ",
+            50000
+          ],
+          [
+            "{\"token\":\"S\"}",
+            1
+          ]
+        ]
+      },
+      "expected": {
+        "parts": [
+          [
+            "{\"token\":\"<redacted>\"}",
             1
           ]
         ]

@@ -18,9 +18,9 @@ const vectors = JSON.parse(readFileSync(new URL('../vectors/log-redaction.json',
 describe('log redaction vectors', () => {
   it('has vectors for headers, bodies and urls', () => {
     expect(vectors.headers.length).toBeGreaterThanOrEqual(46);
-    expect(vectors.bodies.length).toBeGreaterThanOrEqual(106);
-    expect(vectors.perf.length).toBeGreaterThanOrEqual(17);
-    expect(vectors.urls.length).toBeGreaterThanOrEqual(69);
+    expect(vectors.bodies.length).toBeGreaterThanOrEqual(111);
+    expect(vectors.perf.length).toBeGreaterThanOrEqual(22);
+    expect(vectors.urls.length).toBeGreaterThanOrEqual(81);
   });
 
   describe('headers', () => {
@@ -69,6 +69,44 @@ describe('log redaction vectors', () => {
     const differ: number[] = [];
     for (let c = 0; c <= 0xffff; c++) if (isSpace(c) !== /\s/.test(String.fromCharCode(c))) differ.push(c);
     expect(differ).toEqual([]);
+  });
+
+  describe('only plain data is walked', () => {
+    class Credentials {
+      password = 'SECRET_MODEL';
+      note = 'n';
+    }
+    class Model {
+      constructor(private readonly secret: string) {}
+      toJSON(): unknown {
+        return { visible: this.secret };
+      }
+    }
+
+    it('a custom object body is logged as <object>', () => {
+      expect(redactBody(new Credentials())).toBe('<object>');
+      expect(redactBody({ user: new Credentials(), keep: 1 })).toEqual({ user: '<object>', keep: 1 });
+      expect(redactBody([new Date(0), 'x'])).toEqual(['<object>', 'x']);
+      const tagged = { [Symbol.toStringTag]: 'Tagged', secret_value: 'SECRET_TAG' };
+      expect(redactBody(tagged)).toBe('<object>');
+      expect(redactBody({ a: () => 'SECRET_FN' })).toEqual({ a: '<object>' });
+    });
+
+    it('a Set/Map body is logged as <object>', () => {
+      expect(redactBody(new Set(['SECRET_SET']))).toBe('<object>');
+      expect(redactBody(new Map([['password', 'SECRET_MAP']]))).toBe('<object>');
+      expect(redactBody({ s: new Set([1]), m: new Map() })).toEqual({ s: '<object>', m: '<object>' });
+    });
+
+    it('a model with toJson/toJSON never reaches the sink', () => {
+      expect(redactBody(new Model('SECRET_JSON'))).toBe('<object>');
+      const plainWithToJson = { keep: 1, toJSON: () => ({ visible: 'SECRET_JSON' }) };
+      expect(redactBody(plainWithToJson)).toBe('<object>');
+      expect(JSON.stringify(redactBody({ inner: new Model('SECRET_JSON') }))).not.toContain('SECRET_JSON');
+      // an object with a null prototype is plain data
+      const bare = Object.assign(Object.create(null) as Record<string, unknown>, { token: 't', keep: 1 });
+      expect(redactBody(bare)).toEqual({ token: '<redacted>', keep: 1 });
+    });
   });
 
   it('redacts a Headers instance (lower-case names)', () => {

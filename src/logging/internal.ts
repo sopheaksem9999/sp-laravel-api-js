@@ -7,6 +7,11 @@ const MAX_ID = 128;
 /** Deepest nesting of arrays/objects a body may have; a deeper body is logged as `<unavailable>` as a whole. */
 const MAX_DEPTH = 100;
 const UNAVAILABLE = '<unavailable>';
+/** What a body value that is not plain data (class instance, Map, Set, Date, function, model with toJSON) becomes. */
+const OBJECT = '<object>';
+/** A query or fragment value holding a URL is redacted as a URL, at most this many levels deep. */
+const MAX_URL_DEPTH = 2;
+const NESTED_URL = /^https?:\/\//i;
 
 const SENSITIVE_HEADERS = new Set(['authorization', 'cookie', 'set-cookie', 'x-csrf-token']);
 const SENSITIVE_HEADER_RE = /auth|token|key|secret|cookie|session|csrf|xsrf|password|credential|signature|pass|otp|jwt|bearer/i;
@@ -66,12 +71,73 @@ export function redactHeaders(h: Headers | Record<string, string>, tenantHeader?
   return out;
 }
 
+function hexValue(c: number): number {
+  if (c >= 0x30 && c <= 0x39) return c - 0x30;
+  const l = c | 0x20;
+  return l >= 0x61 && l <= 0x66 ? l - 0x57 : -1;
+}
+
+/** The byte of a `%XX` escape at `i`, or -1. */
+function escapedByte(s: string, i: number): number {
+  if (i + 2 >= s.length || s.charCodeAt(i) !== 0x25) return -1;
+  const h = hexValue(s.charCodeAt(i + 1));
+  const l = hexValue(s.charCodeAt(i + 2));
+  return h < 0 || l < 0 ? -1 : h * 16 + l;
+}
+
+/**
+ * Tolerant percent-decoding, identical in JS and Dart: every `%XX` run forming valid UTF-8 is decoded (as
+ * `decodeURIComponent` does); an invalid or truncated sequence and raw non-ASCII text are kept as they are, and the
+ * rest of the text is still decoded. Linear: each escape is looked at most four times.
+ */
 function decode(s: string): string {
-  try {
-    return decodeURIComponent(s);
-  } catch {
-    return s;
+  if (!s.includes('%')) return s;
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const b = escapedByte(s, i);
+    if (b < 0) {
+      const next = s.indexOf('%', i + 1);
+      const end = next < 0 ? s.length : next;
+      out += s.slice(i, end);
+      i = end;
+      continue;
+    }
+    if (b < 0x80) {
+      out += String.fromCharCode(b);
+      i += 3;
+      continue;
+    }
+    // UTF-8 lead byte: sequence length and the allowed range of the second byte (no overlongs, no surrogates).
+    let len = 0;
+    let lo = 0x80;
+    let hi = 0xbf;
+    if (b >= 0xc2 && b <= 0xdf) len = 2;
+    else if (b >= 0xe0 && b <= 0xef) {
+      len = 3;
+      if (b === 0xe0) lo = 0xa0;
+      else if (b === 0xed) hi = 0x9f;
+    } else if (b >= 0xf0 && b <= 0xf4) {
+      len = 4;
+      if (b === 0xf0) lo = 0x90;
+      else if (b === 0xf4) hi = 0x8f;
+    }
+    let cp = len === 2 ? b & 0x1f : len === 3 ? b & 0x0f : b & 0x07;
+    let ok = len > 0;
+    for (let k = 1; ok && k < len; k++) {
+      const c = escapedByte(s, i + 3 * k);
+      if (c < (k === 1 ? lo : 0x80) || c > (k === 1 ? hi : 0xbf)) ok = false;
+      else cp = (cp << 6) | (c & 0x3f);
+    }
+    if (ok) {
+      out += String.fromCodePoint(cp);
+      i += 3 * len;
+    } else {
+      out += s.slice(i, i + 3);
+      i += 3;
+    }
   }
+  return out;
 }
 
 /**
@@ -137,26 +203,40 @@ function isSensitiveEmbedded(rawKey: string, rawValue: string): boolean {
 }
 
 /** Applied to a query string and to a fragment: `key=value` parts with a sensitive key, or a value embedding a condition on a sensitive column, lose their value. */
-function redactQuery(qs: string): string {
+function redactQuery(qs: string, depth: number): string {
   return qs
     .split('&')
     .map((part) => {
       const i = part.indexOf('=');
       if (i <= 0) return part;
       const k = part.slice(0, i);
-      return isSensitiveQueryKey(k) || isSensitiveEmbedded(k, part.slice(i + 1)) ? `${k}=${REDACTED}` : part;
+      const v = part.slice(i + 1);
+      if (isSensitiveQueryKey(k) || isSensitiveEmbedded(k, v)) return `${k}=${REDACTED}`;
+      if (depth < MAX_URL_DEPTH) {
+        // A value holding a URL (a redirect target) is redacted as a URL; kept as it was when nothing changes.
+        const url = decode(v);
+        if (NESTED_URL.test(url)) {
+          const r = redactUrlAt(url, depth + 1);
+          if (r !== url) return `${k}=${r}`;
+        }
+      }
+      return part;
     })
     .join('&');
 }
 
-/** Redacts sensitive query and fragment values and credentials in the authority; the path is kept. */
-export function redactUrl(url: string): string {
+function redactUrlAt(url: string, depth: number): string {
   const hash = url.indexOf('#');
-  const frag = hash < 0 ? '' : `#${redactQuery(url.slice(hash + 1))}`;
+  const frag = hash < 0 ? '' : `#${redactQuery(url.slice(hash + 1), depth)}`;
   const rest = hash < 0 ? url : url.slice(0, hash);
   const q = rest.indexOf('?');
   const head = (q < 0 ? rest : rest.slice(0, q)).replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, `$1${REDACTED}@`);
-  return q < 0 ? head + frag : `${head}?${redactQuery(rest.slice(q + 1))}${frag}`;
+  return q < 0 ? head + frag : `${head}?${redactQuery(rest.slice(q + 1), depth)}${frag}`;
+}
+
+/** Redacts sensitive query and fragment values (nested URLs too) and credentials in the authority; the path is kept. */
+export function redactUrl(url: string): string {
+  return redactUrlAt(url, 0);
 }
 
 /** Cuts at `max` (default 2048) UTF-16 units (never inside a surrogate pair) and appends a marker. */
@@ -171,12 +251,25 @@ function truncate(s: string, max: number): string {
 /** Thrown by `walk` past `MAX_DEPTH` nested containers; `redactBody` then returns `<unavailable>`. */
 class TooDeep {}
 
+/**
+ * A plain data object (a JSON object): `[object Object]` (no `Symbol.toStringTag`), a prototype that is `null` or a
+ * root prototype (`Object.prototype` of any realm), and no `toJSON` method.
+ */
+function isPlainObject(v: object): boolean {
+  if (Object.prototype.toString.call(v) !== '[object Object]') return false;
+  const p: unknown = Object.getPrototypeOf(v);
+  if (p !== null && Object.getPrototypeOf(p) !== null) return false;
+  return typeof (v as { toJSON?: unknown }).toJSON !== 'function';
+}
+
 function walk(v: unknown, depth: number): unknown {
   if (Array.isArray(v)) {
     if (depth >= MAX_DEPTH) throw new TooDeep();
     return v.map((x) => walk(x, depth + 1));
   }
-  if (typeof v === 'object' && v !== null && Object.prototype.toString.call(v) === '[object Object]') {
+  if (typeof v === 'function') return OBJECT;
+  if (typeof v === 'object' && v !== null) {
+    if (!isPlainObject(v)) return OBJECT;
     if (depth >= MAX_DEPTH) throw new TooDeep();
     const out: Record<string, unknown> = {};
     for (const [k, x] of Object.entries(v)) out[k] = isSensitiveKey(k) ? REDACTED : walk(x, depth + 1);
@@ -186,13 +279,14 @@ function walk(v: unknown, depth: number): unknown {
 }
 
 function redactString(s: string): string {
-  const t = s.trimStart();
+  // JSON parsers reject a leading BOM or NBSP, so the text is stripped of `\s` characters (U+FEFF, U+00A0 included).
+  const t = strip(s);
   if (t.startsWith('{') || t.startsWith('[')) {
     // Only a parse failure means "not JSON"; a body too deep to walk must not fall through and be echoed.
-    const parsed = parseJson(s);
+    const parsed = parseJson(t);
     if (parsed !== undefined) return JSON.stringify(walk(parsed, 0));
   }
-  return /^[^\s=&]+=[^\s&]*(&[^\s=&]+=[^\s&]*)*$/.test(s) ? redactQuery(s) : s;
+  return /^[^\s=&]+=[^\s&]*(&[^\s=&]+=[^\s&]*)*$/.test(s) ? redactQuery(s, 0) : s;
 }
 
 function describeOpaque(v: unknown): string | undefined {
@@ -213,7 +307,7 @@ export function redactBody(v: unknown, max: number = MAX_BODY): unknown {
     const opaque = describeOpaque(v);
     if (opaque !== undefined) return opaque;
     if (typeof v === 'string') return truncate(redactString(v), max);
-    if (v instanceof URLSearchParams) return truncate(redactQuery(v.toString()), max);
+    if (v instanceof URLSearchParams) return truncate(redactQuery(v.toString(), 0), max);
     const r = walk(v, 0);
     if (typeof r === 'object' && r !== null) {
       const s = JSON.stringify(r);
