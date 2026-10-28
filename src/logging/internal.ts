@@ -6,15 +6,35 @@ const MARKER = '…[truncated]';
 const MAX_ID = 128;
 
 const SENSITIVE_HEADERS = new Set(['authorization', 'cookie', 'set-cookie', 'x-csrf-token']);
-const SENSITIVE_HEADER_RE = /auth|token|key|secret|cookie|session|csrf|xsrf|password|credential/i;
+const SENSITIVE_HEADER_RE = /auth|token|key|secret|cookie|session|csrf|xsrf|password|credential|signature|pass|otp|jwt|bearer/i;
 const URL_HEADERS = new Set(['location', 'content-location', 'referer', 'referrer', 'origin']);
-const SENSITIVE_KEYS = new Set(['password', 'secret', 'code', 'otp', 'jwt', 'token', 'apikey', 'accesstoken', 'refreshtoken']);
-const SENSITIVE_SUFFIX = /(token|secret|password|apikey)$/;
+const SENSITIVE_KEYS = new Set([
+  'password', 'secret', 'code', 'otp', 'jwt', 'token', 'apikey', 'accesstoken', 'refreshtoken',
+  'pin', 'pwd', 'pass', 'sig', 'authorization', 'cookie',
+]);
+// `credential` is singular on purpose: a `credentials` key holding an object is walked, not redacted whole.
+const SENSITIVE_SUFFIX =
+  /(tokens?|secrets?|passwords?|passwd|passphrase|passcode|apikeys?|privatekey|secretkey|clientkey|signingkey|encryptionkey|signature|credential|otp|(otp|verification|auth|mfa|reset|recovery|backup)codes?)$/;
+/** A PostgREST-style filter group (`or=(...)`, `not.and=(...)`). */
+const GROUP_KEY = /^(not\.)?(and|or)$/;
+/** A column inside a filter group: the text before the first `.` after the start, a `(` or a `,`. */
+const GROUP_COLUMN = /(?:^|[(,])\s*([^(),.]+)\./g;
 
-/** Lower-cased, `-` and `_` removed: equals a listed key, ends with token/secret/password/apikey, or starts with password. */
+/** Lower-cased, `-` and `_` removed: equals a listed key, matches the sensitive suffix, or starts with password. */
 export function isSensitiveKey(k: string): boolean {
   const n = k.toLowerCase().replace(/[-_]/g, '');
   return SENSITIVE_KEYS.has(n) || SENSITIVE_SUFFIX.test(n) || n.startsWith('password');
+}
+
+/** `Link` holds URLs in `<...>`; `Refresh` holds one after `url=` (or is one); other URL-valued headers are a URL. */
+function redactHeaderValue(n: string, v: string): string {
+  if (URL_HEADERS.has(n)) return redactUrl(v);
+  if (n === 'link') return v.replace(/<([^>]*)>/g, (_m, u: string) => `<${redactUrl(u)}>`);
+  if (n === 'refresh') {
+    const m = /url\s*=\s*/i.exec(v);
+    return m === null ? redactUrl(v) : v.slice(0, m.index + m[0].length) + redactUrl(v.slice(m.index + m[0].length));
+  }
+  return v;
 }
 
 /** Redacts header values by name (case-insensitive), the tenant header and URL-valued headers; `Headers` keys come out lower-case. */
@@ -23,7 +43,7 @@ export function redactHeaders(h: Headers | Record<string, string>, tenantHeader?
   const out: Record<string, string> = {};
   const put = (v: string, k: string): void => {
     const n = k.toLowerCase();
-    out[k] = SENSITIVE_HEADERS.has(n) || n === tenant || SENSITIVE_HEADER_RE.test(n) ? REDACTED : URL_HEADERS.has(n) ? redactUrl(v) : v;
+    out[k] = SENSITIVE_HEADERS.has(n) || n === tenant || SENSITIVE_HEADER_RE.test(n) ? REDACTED : redactHeaderValue(n, v);
   };
   if (h instanceof Headers) h.forEach(put);
   else for (const [k, v] of Object.entries(h)) put(String(v), k);
@@ -44,23 +64,33 @@ function isSensitiveQueryKey(rawKey: string): boolean {
   return isSensitiveKey(key) || key.split(/[[\]]/).some((s) => s !== '' && isSensitiveKey(s));
 }
 
+/** A filter group (`or`, `and`, `not.or`, `not.and`) whose value names a sensitive column, at any nesting depth. */
+function isSensitiveGroup(rawKey: string, rawValue: string): boolean {
+  if (!GROUP_KEY.test(decode(rawKey))) return false;
+  for (const m of decode(rawValue).matchAll(GROUP_COLUMN)) if (isSensitiveKey(m[1] as string)) return true;
+  return false;
+}
+
+/** Applied to a query string and to a fragment: `key=value` parts with a sensitive key, or a sensitive filter group, lose their value. */
 function redactQuery(qs: string): string {
   return qs
     .split('&')
     .map((part) => {
       const i = part.indexOf('=');
-      return i > 0 && isSensitiveQueryKey(part.slice(0, i)) ? `${part.slice(0, i)}=${REDACTED}` : part;
+      if (i <= 0) return part;
+      const k = part.slice(0, i);
+      return isSensitiveQueryKey(k) || isSensitiveGroup(k, part.slice(i + 1)) ? `${k}=${REDACTED}` : part;
     })
     .join('&');
 }
 
-/** Redacts sensitive query values and credentials in the authority; the path and fragment are kept. */
+/** Redacts sensitive query and fragment values and credentials in the authority; the path is kept. */
 export function redactUrl(url: string): string {
   const hash = url.indexOf('#');
-  const frag = hash < 0 ? '' : url.slice(hash);
+  const frag = hash < 0 ? '' : `#${redactQuery(url.slice(hash + 1))}`;
   const rest = hash < 0 ? url : url.slice(0, hash);
   const q = rest.indexOf('?');
-  const head = (q < 0 ? rest : rest.slice(0, q)).replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#@]*@/i, `$1${REDACTED}@`);
+  const head = (q < 0 ? rest : rest.slice(0, q)).replace(/^([a-z][a-z0-9+.-]*:\/\/)[^/?#]*@/i, `$1${REDACTED}@`);
   return q < 0 ? head + frag : `${head}?${redactQuery(rest.slice(q + 1))}${frag}`;
 }
 

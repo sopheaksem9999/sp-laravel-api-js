@@ -13,9 +13,9 @@ const vectors = JSON.parse(readFileSync(new URL('../vectors/log-redaction.json',
 
 describe('log redaction vectors', () => {
   it('has vectors for headers, bodies and urls', () => {
-    expect(vectors.headers.length).toBeGreaterThan(30);
-    expect(vectors.bodies.length).toBeGreaterThan(60);
-    expect(vectors.urls.length).toBeGreaterThan(25);
+    expect(vectors.headers.length).toBeGreaterThanOrEqual(46);
+    expect(vectors.bodies.length).toBeGreaterThanOrEqual(103);
+    expect(vectors.urls.length).toBeGreaterThanOrEqual(43);
   });
 
   describe('headers', () => {

@@ -1,5 +1,5 @@
 {
-  "_note": "Canonical redaction vectors for optional request logging. Shared byte for byte by sp-laravel-api-js (test/vectors/log-redaction.json) and sp-laravel-api-dart (test/vectors/log_redaction.json). The placeholder is the text <redacted>. NORMALISATION: a key is lower-cased and every - and _ is removed. A key is sensitive when its normalised form equals password, secret, code, otp, jwt, token, apikey, accesstoken or refreshtoken, OR ends with token, secret, password or apikey, OR starts with password. Other keys that merely contain such a word (error_code, tokens_left, zipcode, primary_key, next_cursor, secretary) stay visible. TRUNCATION: the limit is 2048 UTF-16 code units; a longer body keeps its first 2048 (one fewer when the cut would split a surrogate pair) and appends the marker …[truncated]. headers: input.headers is a map of header name to value and input.tenantHeader is the configured tenant header name or null; expected is the map after redaction (names keep the case they were given). A header value becomes the placeholder when its lower-cased name equals the tenant header lower-cased, equals authorization, cookie, set-cookie or x-csrf-token, or contains any of auth, token, key, secret, cookie, session, csrf, xsrf, password, credential. The values of location, content-location, referer, referrer and origin are URLs and go through the urls rule instead. bodies: input is any JSON value; a JSON string is a body that was sent as text: a string holding a JSON object or array is parsed, redacted and re-serialised compactly with no spaces and keys in the original order, and a url-encoded string has its sensitive values replaced; any other string is only truncated and is NOT scanned for secrets. A sensitive key has its whole value replaced, at any depth and inside arrays; JSON stringified inside a string value is not scanned. urls: input is a full or relative URL; query values of sensitive keys (also inside brackets, and percent-decoded) become the placeholder, credentials in the authority become the placeholder, and paths and fragments are kept verbatim.",
+  "_note": "Canonical redaction vectors for optional request logging. Shared byte for byte by sp-laravel-api-js (test/vectors/log-redaction.json) and sp-laravel-api-dart (test/vectors/log_redaction.json). The placeholder is the text <redacted>. NORMALISATION: a key is lower-cased and every - and _ is removed. KEYS: a key is sensitive when its normalised form (1) equals password, secret, code, otp, jwt, token, apikey, accesstoken, refreshtoken, pin, pwd, pass, sig, authorization or cookie, OR (2) matches the regular expression (tokens?|secrets?|passwords?|passwd|passphrase|passcode|apikeys?|privatekey|secretkey|clientkey|signingkey|encryptionkey|signature|credential|otp|(otp|verification|auth|mfa|reset|recovery|backup)codes?)$ , OR (3) starts with password. Other keys that merely contain such a word stay visible (error_code, tokens_left, zipcode, primary_key, next_cursor, secretary, idempotency_key, country_code, promo_code, key, status_code, status); credential is singular on purpose, so a credentials key holding an object is walked, not redacted whole. TRUNCATION: the limit is 2048 UTF-16 code units; a longer body keeps its first 2048 (one fewer when the cut would split a surrogate pair) and appends the marker …[truncated]. headers: input.headers is a map of header name to value and input.tenantHeader is the configured tenant header name or null; expected is the map after redaction (names keep the case they were given). A header value becomes the placeholder when its lower-cased name equals the tenant header lower-cased, equals authorization, cookie, set-cookie or x-csrf-token, or contains any of auth, token, key, secret, cookie, session, csrf, xsrf, password, credential, signature, pass, otp, jwt, bearer. Otherwise the values of location, content-location, referer, referrer and origin are URLs and go through the urls rule; in a link value every URL between < and > goes through the urls rule; in a refresh value the text after the first url= (any case, spaces allowed around =) goes through the urls rule, or the whole value when there is no url=. bodies: input is any JSON value; a JSON string is a body that was sent as text: a string holding a JSON object or array is parsed, redacted and re-serialised compactly with no spaces and keys in the original order, and a url-encoded string has its sensitive values replaced (the query rule below); any other string is only truncated and is NOT scanned for secrets. A sensitive key has its whole value replaced, at any depth and inside arrays; JSON stringified inside a string value is not scanned. urls: input is a full or relative URL. QUERY RULE (applied to the query and to the fragment): the text is split on &; a part key=value with a non-empty key has its value replaced when the percent-decoded key, or any of its [bracket] segments, is a sensitive key; a filter group (percent-decoded key matching ^(not\\.)?(and|or)$ ) has its whole value replaced when the percent-decoded value contains a column name that is a sensitive key, a column name being the text before the first dot that follows the start of the value, an opening parenthesis or a comma (optional spaces allowed after those), at any nesting depth. Parts without = are kept. AUTHORITY: in a URL with a scheme, everything between :// and the last @ before the first /, ? or # is replaced by the placeholder. Paths are kept verbatim; a fragment is kept except for its key=value parts.",
   "headers": [
     {
       "name": "Authorization header",
@@ -439,6 +439,180 @@
       },
       "expected": {
         "Location": "https://api.example.com/invoices/42"
+      }
+    },
+    {
+      "name": "header X-Signature is redacted by name pattern",
+      "input": {
+        "headers": {
+          "X-Signature": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-Signature": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header X-Hub-Signature-256 is redacted by name pattern",
+      "input": {
+        "headers": {
+          "X-Hub-Signature-256": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-Hub-Signature-256": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header X-Jwt is redacted by name pattern",
+      "input": {
+        "headers": {
+          "X-Jwt": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-Jwt": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header X-Otp is redacted by name pattern",
+      "input": {
+        "headers": {
+          "X-Otp": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-Otp": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header X-Bearer is redacted by name pattern",
+      "input": {
+        "headers": {
+          "X-Bearer": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-Bearer": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "header X-Pass is redacted by name pattern",
+      "input": {
+        "headers": {
+          "X-Pass": "v1",
+          "Accept": "application/json"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-Pass": "<redacted>",
+        "Accept": "application/json"
+      }
+    },
+    {
+      "name": "Link header URLs have their query redacted, each link on its own",
+      "input": {
+        "headers": {
+          "Link": "<https://api.example.com/invoices?page=2>; rel=\"next\", <https://api.example.com/invoices?token=abc123&page=1>; rel=\"prev\""
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Link": "<https://api.example.com/invoices?page=2>; rel=\"next\", <https://api.example.com/invoices?token=<redacted>&page=1>; rel=\"prev\""
+      }
+    },
+    {
+      "name": "link lower-case with credentials in the authority",
+      "input": {
+        "headers": {
+          "link": "<https://user:pw@api.example.com/x?a=1>; rel=next"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "link": "<https://<redacted>@api.example.com/x?a=1>; rel=next"
+      }
+    },
+    {
+      "name": "Refresh header URL has its query redacted",
+      "input": {
+        "headers": {
+          "Refresh": "0; url=https://app.example.com/?token=abc123&a=1"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Refresh": "0; url=https://app.example.com/?token=<redacted>&a=1"
+      }
+    },
+    {
+      "name": "Refresh header without url= is redacted as a whole",
+      "input": {
+        "headers": {
+          "Refresh": "5;https://app.example.com/?access_token=abc&a=1"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Refresh": "5;https://app.example.com/?access_token=<redacted>&a=1"
+      }
+    },
+    {
+      "name": "Refresh header with only a delay is unchanged",
+      "input": {
+        "headers": {
+          "Refresh": "5"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Refresh": "5"
+      }
+    },
+    {
+      "name": "Location fragment key=value pairs are redacted",
+      "input": {
+        "headers": {
+          "Location": "https://app.example.com/cb#access_token=abc&state=s1"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "Location": "https://app.example.com/cb#access_token=<redacted>&state=s1"
+      }
+    },
+    {
+      "name": "more headers that only look similar stay visible",
+      "input": {
+        "headers": {
+          "X-Request-ID": "r-1",
+          "Forwarded": "for=192.0.2.1",
+          "Vary": "Accept",
+          "X-Total-Count": "3"
+        },
+        "tenantHeader": null
+      },
+      "expected": {
+        "X-Request-ID": "r-1",
+        "Forwarded": "for=192.0.2.1",
+        "Vary": "Accept",
+        "X-Total-Count": "3"
       }
     }
   ],
@@ -1183,6 +1357,471 @@
       "name": "text length 5000 is truncated",
       "input": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "expected": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb…[truncated]"
+    },
+    {
+      "name": "key otp_code is redacted",
+      "input": {
+        "otp_code": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "otp_code": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key verification_code is redacted",
+      "input": {
+        "verification_code": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "verification_code": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key two_factor_recovery_codes is redacted",
+      "input": {
+        "two_factor_recovery_codes": [
+          "r1",
+          "r2"
+        ],
+        "keep": "ok"
+      },
+      "expected": {
+        "two_factor_recovery_codes": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key recovery_codes is redacted",
+      "input": {
+        "recovery_codes": [
+          "r1",
+          "r2"
+        ],
+        "keep": "ok"
+      },
+      "expected": {
+        "recovery_codes": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key backup_codes is redacted",
+      "input": {
+        "backup_codes": [
+          "b1"
+        ],
+        "keep": "ok"
+      },
+      "expected": {
+        "backup_codes": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key auth_code is redacted",
+      "input": {
+        "auth_code": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "auth_code": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key mfa_code is redacted",
+      "input": {
+        "mfa_code": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "mfa_code": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key reset_code is redacted",
+      "input": {
+        "reset_code": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "reset_code": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key email_otp is redacted",
+      "input": {
+        "email_otp": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "email_otp": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key device_tokens is redacted",
+      "input": {
+        "device_tokens": [
+          "d1",
+          "d2"
+        ],
+        "keep": "ok"
+      },
+      "expected": {
+        "device_tokens": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key tokens is redacted",
+      "input": {
+        "tokens": [
+          "t1"
+        ],
+        "keep": "ok"
+      },
+      "expected": {
+        "tokens": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key api_keys is redacted",
+      "input": {
+        "api_keys": [
+          "k1"
+        ],
+        "keep": "ok"
+      },
+      "expected": {
+        "api_keys": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key secrets is redacted",
+      "input": {
+        "secrets": {
+          "a": "s1"
+        },
+        "keep": "ok"
+      },
+      "expected": {
+        "secrets": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key passwords is redacted",
+      "input": {
+        "passwords": [
+          "p1"
+        ],
+        "keep": "ok"
+      },
+      "expected": {
+        "passwords": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key passwd is redacted",
+      "input": {
+        "passwd": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "passwd": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key passphrase is redacted",
+      "input": {
+        "passphrase": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "passphrase": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key passcode is redacted",
+      "input": {
+        "passcode": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "passcode": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key pwd is redacted",
+      "input": {
+        "pwd": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "pwd": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key pin is redacted",
+      "input": {
+        "pin": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "pin": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key PIN is redacted",
+      "input": {
+        "PIN": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "PIN": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key pass is redacted",
+      "input": {
+        "pass": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "pass": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key sig is redacted",
+      "input": {
+        "sig": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "sig": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key authorization is redacted",
+      "input": {
+        "authorization": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "authorization": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key Authorization is redacted",
+      "input": {
+        "Authorization": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "Authorization": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key cookie is redacted",
+      "input": {
+        "cookie": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "cookie": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key secretKey is redacted",
+      "input": {
+        "secretKey": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "secretKey": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key private_key is redacted",
+      "input": {
+        "private_key": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "private_key": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key privateKey is redacted",
+      "input": {
+        "privateKey": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "privateKey": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key client_key is redacted",
+      "input": {
+        "client_key": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "client_key": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key signing_key is redacted",
+      "input": {
+        "signing_key": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "signing_key": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key encryption_key is redacted",
+      "input": {
+        "encryption_key": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "encryption_key": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key signature is redacted",
+      "input": {
+        "signature": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "signature": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key X-Amz-Signature is redacted",
+      "input": {
+        "X-Amz-Signature": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "X-Amz-Signature": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key X-Amz-Credential is redacted",
+      "input": {
+        "X-Amz-Credential": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "X-Amz-Credential": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "key client_credential is redacted",
+      "input": {
+        "client_credential": "value-1",
+        "keep": "ok"
+      },
+      "expected": {
+        "client_credential": "<redacted>",
+        "keep": "ok"
+      }
+    },
+    {
+      "name": "more keys that must stay visible",
+      "input": {
+        "idempotency_key": "i1",
+        "country_code": "KH",
+        "promo_code": "P1",
+        "key": "k",
+        "status_code": 200,
+        "status": "open",
+        "error_code": 3,
+        "tokens_left": 1,
+        "zipcode": "1",
+        "primary_key": "id",
+        "next_cursor": "c",
+        "secretary": "Ann",
+        "pinned": true,
+        "signed": true,
+        "passenger": "Ann"
+      },
+      "expected": {
+        "idempotency_key": "i1",
+        "country_code": "KH",
+        "promo_code": "P1",
+        "key": "k",
+        "status_code": 200,
+        "status": "open",
+        "error_code": 3,
+        "tokens_left": 1,
+        "zipcode": "1",
+        "primary_key": "id",
+        "next_cursor": "c",
+        "secretary": "Ann",
+        "pinned": true,
+        "signed": true,
+        "passenger": "Ann"
+      }
+    },
+    {
+      "name": "a credentials object is walked, not redacted whole",
+      "input": {
+        "credentials": {
+          "username": "ada",
+          "password": "p1",
+          "pin": "1234",
+          "pass": "x"
+        }
+      },
+      "expected": {
+        "credentials": {
+          "username": "ada",
+          "password": "<redacted>",
+          "pin": "<redacted>",
+          "pass": "<redacted>"
+        }
+      }
+    },
+    {
+      "name": "url-encoded string body with new keys",
+      "input": "email=a%40example.com&otp_code=123456&pin=1234&country_code=KH",
+      "expected": "email=a%40example.com&otp_code=<redacted>&pin=<redacted>&country_code=KH"
     }
   ],
   "urls": [
@@ -1302,9 +1941,9 @@
       "expected": "https://api.example.com/api/x?token&a=1"
     },
     {
-      "name": "fragment is kept",
-      "input": "https://api.example.com/api/x?token=v1#top",
-      "expected": "https://api.example.com/api/x?token=<redacted>#top"
+      "name": "fragment key=value pairs are redacted like the query",
+      "input": "https://api.example.com/api/x?token=v1#access_token=F1&state=s1",
+      "expected": "https://api.example.com/api/x?token=<redacted>#access_token=<redacted>&state=s1"
     },
     {
       "name": "credentials in the authority",
@@ -1315,6 +1954,91 @@
       "name": "paths are logged verbatim",
       "input": "https://api.example.com/api/invoices/42/rpc/send",
       "expected": "https://api.example.com/api/invoices/42/rpc/send"
+    },
+    {
+      "name": "a fragment without key=value pairs is kept",
+      "input": "https://api.example.com/api/x?token=v1#top",
+      "expected": "https://api.example.com/api/x?token=<redacted>#top"
+    },
+    {
+      "name": "fragment without a query",
+      "input": "https://app.example.com/cb#access_token=F1&token_type=bearer",
+      "expected": "https://app.example.com/cb#access_token=<redacted>&token_type=bearer"
+    },
+    {
+      "name": "hash-route query in the fragment",
+      "input": "https://app.example.com/#/reset?token=F1",
+      "expected": "https://app.example.com/#/reset?token=<redacted>"
+    },
+    {
+      "name": "credentials with an @ in the password",
+      "input": "https://u:p@ss@api.example.com/p",
+      "expected": "https://<redacted>@api.example.com/p"
+    },
+    {
+      "name": "an @ in the query is not taken for credentials",
+      "input": "https://api.example.com/p?email=a@example.com",
+      "expected": "https://api.example.com/p?email=a@example.com"
+    },
+    {
+      "name": "query key signature",
+      "input": "https://api.example.com/api/x?signature=v1&keep=1",
+      "expected": "https://api.example.com/api/x?signature=<redacted>&keep=1"
+    },
+    {
+      "name": "query keys X-Amz-Signature and X-Amz-Credential",
+      "input": "https://files.example.com/a.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIDEXAMPLE%2F20261028&X-Amz-Date=20261028T000000Z&X-Amz-Expires=300&X-Amz-Signature=abc123",
+      "expected": "https://files.example.com/a.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=<redacted>&X-Amz-Date=20261028T000000Z&X-Amz-Expires=300&X-Amz-Signature=<redacted>"
+    },
+    {
+      "name": "query keys sig, otp_code, pin and pwd",
+      "input": "https://api.example.com/api/x?sig=v1&otp_code=v2&pin=v3&pwd=v4&keep=1",
+      "expected": "https://api.example.com/api/x?sig=<redacted>&otp_code=<redacted>&pin=<redacted>&pwd=<redacted>&keep=1"
+    },
+    {
+      "name": "query keys tokens and api_keys",
+      "input": "https://api.example.com/api/x?tokens=v1&api_keys[]=v2&keep=1",
+      "expected": "https://api.example.com/api/x?tokens=<redacted>&api_keys[]=<redacted>&keep=1"
+    },
+    {
+      "name": "more query keys that must stay visible",
+      "input": "https://api.example.com/api/x?status=open&status_code=200&country_code=KH&promo_code=P1&key=k&idempotency_key=i1&tokens_left=3&zipcode=1",
+      "expected": "https://api.example.com/api/x?status=open&status_code=200&country_code=KH&promo_code=P1&key=k&idempotency_key=i1&tokens_left=3&zipcode=1"
+    },
+    {
+      "name": "or filter group with a sensitive column (percent-encoded)",
+      "input": "https://api.example.com/api/users?or=%28email.eq.a%40example.com%2Capi_token.eq.SECRET1%29&per_page=25",
+      "expected": "https://api.example.com/api/users?or=<redacted>&per_page=25"
+    },
+    {
+      "name": "not.or filter group with a sensitive column",
+      "input": "https://api.example.com/api/users?not.or=(password.eq.S)",
+      "expected": "https://api.example.com/api/users?not.or=<redacted>"
+    },
+    {
+      "name": "nested filter group with a sensitive column",
+      "input": "https://api.example.com/api/users?and=(or(a.eq.1,pin.eq.2),b.eq.3)&per_page=25",
+      "expected": "https://api.example.com/api/users?and=<redacted>&per_page=25"
+    },
+    {
+      "name": "not.and filter group with a sensitive column after a space",
+      "input": "https://api.example.com/api/users?not.and=(status.eq.open, otp_code.eq.1)",
+      "expected": "https://api.example.com/api/users?not.and=<redacted>"
+    },
+    {
+      "name": "filter group without sensitive columns is unchanged",
+      "input": "https://api.example.com/api/invoices?and=(status.eq.open,total.gt.5)",
+      "expected": "https://api.example.com/api/invoices?and=(status.eq.open,total.gt.5)"
+    },
+    {
+      "name": "or filter group of visible columns with nested values is unchanged",
+      "input": "https://api.example.com/api/invoices?or=(status.in.(draft,open),due_date.lt.2026-11-01,not.and(total.gt.5,code_type.eq.x))",
+      "expected": "https://api.example.com/api/invoices?or=(status.in.(draft,open),due_date.lt.2026-11-01,not.and(total.gt.5,code_type.eq.x))"
+    },
+    {
+      "name": "a filter group key is matched exactly",
+      "input": "https://api.example.com/api/x?order=(token.eq.1)&ors=(token.eq.2)",
+      "expected": "https://api.example.com/api/x?order=(token.eq.1)&ors=(token.eq.2)"
     }
   ]
 }

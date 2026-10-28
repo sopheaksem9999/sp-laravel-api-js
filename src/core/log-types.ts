@@ -9,7 +9,7 @@ export type LogOption = boolean | { headers?: boolean; bodies?: boolean };
 /** One HTTP attempt. Headers and bodies are present only when the call asked for them, and are always redacted. */
 export interface LogEntry {
   method: string;
-  /** Full URL; query values of sensitive keys are redacted. Paths (ids included) are logged verbatim. */
+  /** Full URL; sensitive query and fragment values, filter groups naming a sensitive column and authority credentials are redacted. Paths (ids included) are logged verbatim. */
   url: string;
   /** `null` when no response arrived (network failure, timeout, abort). */
   status: number | null;
