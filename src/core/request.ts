@@ -7,7 +7,7 @@ import { serializeQuery } from './serialize';
 export interface ApiAuth {
   getHeaders(): Promise<Record<string, string>>;
   /**
-   * Called once on a 401; resolve `true` to retry the request once with fresh
+   * Called at most once per request, on a 401 or on a 2xx response whose body is `{ success: false, error_code: 10002 }`; resolve `true` to retry the request once with fresh
    * headers. `failed.headers` are the headers sent on the failed attempt
    * (lowercase keys), so the auth layer can tell whether the token was already
    * replaced. Implementations may ignore the argument.
@@ -313,18 +313,19 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
         o.signal?.removeEventListener('abort', onAbort);
       }
 
-      if (failure === null && cfg.treatSuccessFalseAsError !== false && o.responseType !== 'text' && text.trim() !== '') {
-        let probe: unknown;
+      let parsed: unknown;
+      let isParsed = false;
+      if (failure === null && o.responseType !== 'text' && text.trim() !== '') {
         try {
-          probe = JSON.parse(text);
+          parsed = JSON.parse(text);
         } catch {
-          probe = undefined;
+          parsed = text;
         }
-        if (isRecord(probe) && probe.success === false) {
+        isParsed = true;
+        if (cfg.treatSuccessFalseAsError !== false && isRecord(parsed) && parsed.success === false) {
           failure = errorFromBody(res, text, {
             module: o.module,
             tenantHeader: cfg.tenant?.header,
-            disabledOn404: o.disabledOn404,
           });
         }
       }
@@ -333,7 +334,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
         if (lg) fin(lg, { attempt: attempt + 1, t0, sent: headers, res, failure });
         if (
           !refreshed &&
-          (failure.status === 401 || (failure.status < 400 && failure.errorCode === 10002)) &&
+          (failure.status === 401 || (failure.status >= 200 && failure.status < 300 && failure.errorCode === 10002)) &&
           cfg.auth?.handleUnauthorized !== undefined
         ) {
           refreshed = true;
@@ -362,13 +363,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
 
       if (lg) fin(lg, { attempt: attempt + 1, t0, sent: headers, res, text, responseType: o.responseType });
       if (o.responseType === 'text') return { data: text as T, meta: {}, response: res };
-      if (text.trim() === '') return { data: null as T, meta: {}, response: res };
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        parsed = text;
-      }
+      if (!isParsed) return { data: null as T, meta: {}, response: res };
       if (isRecord(parsed) && parsed.success === true) {
         return { data: parsed.data as T, meta: isRecord(parsed.meta) ? parsed.meta : {}, response: res };
       }

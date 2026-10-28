@@ -134,8 +134,8 @@ export function errorFromBody(res: Response, text: string, ctx: ErrorContext = {
   const obj = isRecord(body) ? body : null;
   const fieldErrors = normaliseFieldErrors(obj?.errors);
 
-  let code = res.status < 400 ? codeFromEnvelope(obj?.error_code) : codeFromStatus(res.status);
-  if (code === 'not_found' && ctx.disabledOn404 === true) code = 'module_disabled';
+  let code = res.status >= 200 && res.status < 300 ? codeFromEnvelope(obj?.error_code) : codeFromStatus(res.status);
+  if (code === 'not_found' && res.status === 404 && ctx.disabledOn404 === true) code = 'module_disabled';
   if (
     code === 'validation' &&
     ctx.tenantHeader !== undefined &&

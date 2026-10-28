@@ -134,6 +134,10 @@ describe('transportError', () => {
 });
 
 describe('errorFromBody', () => {
+  it('a 3xx maps by status (unknown), not by body error_code', () => {
+    const res = new Response('', { status: 302 });
+    expect(errorFromBody(res, '{"success":false,"error_code":10002}').code).toBe('unknown');
+  });
   it('maps a 200 envelope error_code and keeps status 200', () => {
     const res = new Response('', { status: 200 });
     const e = errorFromBody(res, JSON.stringify({ success: false, error_code: 10008, message: 'nope' }));

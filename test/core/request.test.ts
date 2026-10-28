@@ -363,7 +363,6 @@ describe('createRequester 200 success:false', () => {
   const fail = (error_code: number, extra: Record<string, unknown> = {}) =>
     json({ success: false, error_code, message: 'x', ...extra });
   const expired = () => fail(10002);
-  const auth = (hook?: ApiConfig['auth'] extends infer A ? A : never) => hook;
 
   it('throws SpApiError with status 200, body errorCode and message, code unknown', async () => {
     const { request } = setup([fail(5)]);
@@ -444,8 +443,8 @@ describe('createRequester 200 success:false', () => {
   });
 
   it('10002 throws at once without auth, without a hook, or when the hook resolves false', async () => {
-    for (const a of [undefined, { getHeaders: async () => ({}) }, { getHeaders: async () => ({}), handleUnauthorized: async () => false }]) {
-      const { request, fake } = setup([expired()], a === undefined ? {} : { auth: auth(a) });
+    for (const a of [undefined as ApiConfig['auth'], { getHeaders: async () => ({}) }, { getHeaders: async () => ({}), handleUnauthorized: async () => false }]) {
+      const { request, fake } = setup([expired()], a === undefined ? {} : { auth: a });
       await expect(request({ method: 'GET', path: 'a' })).rejects.toMatchObject({ errorCode: 10002 });
       expect(fake).toHaveBeenCalledTimes(1);
     }
@@ -484,6 +483,24 @@ describe('createRequester 200 success:false', () => {
     expect(r.data).toEqual({ id: 1 });
     expect(handleUnauthorized).toHaveBeenCalledTimes(1);
     expect(fake).toHaveBeenCalledTimes(3);
+  });
+
+  it('a 200 10009 on a disabledOn404 call stays not_found; a real 404 is module_disabled', async () => {
+    const { request } = setup([fail(10009), json({ message: 'no' }, 404)]);
+    const a = await request({ method: 'GET', path: 'a', disabledOn404: true }).catch((x: unknown) => x);
+    expect(a).toMatchObject({ code: 'not_found', status: 200 });
+    const b = await request({ method: 'GET', path: 'a', disabledOn404: true }).catch((x: unknown) => x);
+    expect(b).toMatchObject({ code: 'module_disabled', status: 404 });
+  });
+
+  it('a 3xx never maps by body nor refreshes', async () => {
+    const handleUnauthorized = vi.fn(async () => true);
+    const { request, fake } = setup([new Response(JSON.stringify({ success: false, error_code: 10002 }), { status: 302 })], {
+      auth: { getHeaders: async () => ({}), handleUnauthorized },
+    });
+    await request({ method: 'GET', path: 'a' }).catch(() => undefined);
+    expect(handleUnauthorized).not.toHaveBeenCalled();
+    expect(fake).toHaveBeenCalledTimes(1);
   });
 
   it('a 401 then a 10002 refreshes only once', async () => {
