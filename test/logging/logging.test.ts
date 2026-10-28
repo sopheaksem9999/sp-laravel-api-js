@@ -474,6 +474,19 @@ describe('request logging, hardening', () => {
     expect(entries[0]?.responseHeaders?.location).toBe('https://api.example.com/next?token=<redacted>&a=1');
   });
 
+  it('redacts embed filters, anyOf keys and filter groups built by the query serializer', async () => {
+    const { api, entries } = rig([ok, ok, ok, ok], { logMode: 'all' });
+    await api.table('users').list({ select: ['id', { sessions: { cols: ['id'], where: { token: 'SECRET_EMBED' } } }] });
+    await api.table('users').list({ where: { anyOf: ['api_token', 'email'], eq: 'SECRET_ANYOF' } });
+    await api.table('users').list({ or: [{ email: 'a@example.com' }, { api_token: 'SECRET_GROUP' }] });
+    await api.table('users').list({ select: ['id', { sessions: { cols: ['id'], where: { status: 'open' } } }] });
+    const all = JSON.stringify(entries);
+    for (const s of ['SECRET_EMBED', 'SECRET_ANYOF', 'SECRET_GROUP']) expect(all).not.toContain(s);
+    expect(entries[0]?.url).toContain('select=<redacted>');
+    expect(entries[1]?.url).toContain('api_token%2Cemail=<redacted>');
+    expect(entries[3]?.url).toContain('select=id%2Csessions%28id%2Cstatus%3Deq.open%29');
+  });
+
   it('cursorPagination forwards the log option to every list call', async () => {
     const { api, entries, calls } = rig([() => json({ success: true, data: [{ id: 1 }], meta: { next_cursor: 'n1', prev_cursor: 'p1' } })], { logMode: 'perRequest' });
     const cp = api.table('invoices').cursorPagination({ perPage: 1, log: true });

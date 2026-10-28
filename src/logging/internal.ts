@@ -19,6 +19,8 @@ const SENSITIVE_SUFFIX =
 const GROUP_KEY = /^(not\.)?(and|or)$/;
 /** A column inside a filter group: the text before the first `.` after the start, a `(` or a `,`. */
 const GROUP_COLUMN = /(?:^|[(,])\s*([^(),.]+)\./g;
+/** The column of an embed filter inside `select` (`rel(cols,col=op.value)`): the text before `=` after the start, a `(` or a `,`. */
+const EMBED_COLUMN = /(?:^|[(,])\s*([^(),.=]+)=/g;
 
 /** Lower-cased, `-` and `_` removed: equals a listed key, matches the sensitive suffix, or starts with password. */
 export function isSensitiveKey(k: string): boolean {
@@ -58,20 +60,29 @@ function decode(s: string): string {
   }
 }
 
-/** A query key is sensitive when it, or any bracket segment (`user[password]`), is. */
+/** A query key is sensitive when it, any bracket segment (`user[password]`) or any comma-separated part (`anyOf`: `api_token,email`) is. */
 function isSensitiveQueryKey(rawKey: string): boolean {
   const key = decode(rawKey);
-  return isSensitiveKey(key) || key.split(/[[\]]/).some((s) => s !== '' && isSensitiveKey(s));
+  return isSensitiveKey(key) || key.split(/\s*[[\],]\s*/).some((s) => s !== '' && isSensitiveKey(s));
 }
 
-/** A filter group (`or`, `and`, `not.or`, `not.and`) whose value names a sensitive column, at any nesting depth. */
-function isSensitiveGroup(rawKey: string, rawValue: string): boolean {
-  if (!GROUP_KEY.test(decode(rawKey))) return false;
-  for (const m of decode(rawValue).matchAll(GROUP_COLUMN)) if (isSensitiveKey(m[1] as string)) return true;
+function namesSensitiveColumn(value: string, re: RegExp): boolean {
+  for (const m of value.matchAll(re)) if (isSensitiveKey(m[1] as string)) return true;
   return false;
 }
 
-/** Applied to a query string and to a fragment: `key=value` parts with a sensitive key, or a sensitive filter group, lose their value. */
+/**
+ * A value that embeds a condition on a sensitive column, at any nesting depth: a filter group (`or`, `and`, `not.or`,
+ * `not.and`: `col.op.value`) or a `select` with an embed filter (`rel(cols,col=op.value)`).
+ */
+function isSensitiveEmbedded(rawKey: string, rawValue: string): boolean {
+  const key = decode(rawKey);
+  if (GROUP_KEY.test(key)) return namesSensitiveColumn(decode(rawValue), GROUP_COLUMN);
+  if (key === 'select') return namesSensitiveColumn(decode(rawValue), EMBED_COLUMN);
+  return false;
+}
+
+/** Applied to a query string and to a fragment: `key=value` parts with a sensitive key, or a value embedding a condition on a sensitive column, lose their value. */
 function redactQuery(qs: string): string {
   return qs
     .split('&')
@@ -79,7 +90,7 @@ function redactQuery(qs: string): string {
       const i = part.indexOf('=');
       if (i <= 0) return part;
       const k = part.slice(0, i);
-      return isSensitiveQueryKey(k) || isSensitiveGroup(k, part.slice(i + 1)) ? `${k}=${REDACTED}` : part;
+      return isSensitiveQueryKey(k) || isSensitiveEmbedded(k, part.slice(i + 1)) ? `${k}=${REDACTED}` : part;
     })
     .join('&');
 }

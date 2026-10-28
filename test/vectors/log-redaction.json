@@ -1,5 +1,5 @@
 {
-  "_note": "Canonical redaction vectors for optional request logging. Shared byte for byte by sp-laravel-api-js (test/vectors/log-redaction.json) and sp-laravel-api-dart (test/vectors/log_redaction.json). The placeholder is the text <redacted>. NORMALISATION: a key is lower-cased and every - and _ is removed. KEYS: a key is sensitive when its normalised form (1) equals password, secret, code, otp, jwt, token, apikey, accesstoken, refreshtoken, pin, pwd, pass, sig, authorization or cookie, OR (2) matches the regular expression (tokens?|secrets?|passwords?|passwd|passphrase|passcode|apikeys?|privatekey|secretkey|clientkey|signingkey|encryptionkey|signature|credential|otp|(otp|verification|auth|mfa|reset|recovery|backup)codes?)$ , OR (3) starts with password. Other keys that merely contain such a word stay visible (error_code, tokens_left, zipcode, primary_key, next_cursor, secretary, idempotency_key, country_code, promo_code, key, status_code, status); credential is singular on purpose, so a credentials key holding an object is walked, not redacted whole. TRUNCATION: the limit is 2048 UTF-16 code units; a longer body keeps its first 2048 (one fewer when the cut would split a surrogate pair) and appends the marker …[truncated]. headers: input.headers is a map of header name to value and input.tenantHeader is the configured tenant header name or null; expected is the map after redaction (names keep the case they were given). A header value becomes the placeholder when its lower-cased name equals the tenant header lower-cased, equals authorization, cookie, set-cookie or x-csrf-token, or contains any of auth, token, key, secret, cookie, session, csrf, xsrf, password, credential, signature, pass, otp, jwt, bearer. Otherwise the values of location, content-location, referer, referrer and origin are URLs and go through the urls rule; in a link value every URL between < and > goes through the urls rule; in a refresh value the text after the first url= (any case, spaces allowed around =) goes through the urls rule, or the whole value when there is no url=. bodies: input is any JSON value; a JSON string is a body that was sent as text: a string holding a JSON object or array is parsed, redacted and re-serialised compactly with no spaces and keys in the original order, and a url-encoded string has its sensitive values replaced (the query rule below); any other string is only truncated and is NOT scanned for secrets. A sensitive key has its whole value replaced, at any depth and inside arrays; JSON stringified inside a string value is not scanned. urls: input is a full or relative URL. QUERY RULE (applied to the query and to the fragment): the text is split on &; a part key=value with a non-empty key has its value replaced when the percent-decoded key, or any of its [bracket] segments, is a sensitive key; a filter group (percent-decoded key matching ^(not\\.)?(and|or)$ ) has its whole value replaced when the percent-decoded value contains a column name that is a sensitive key, a column name being the text before the first dot that follows the start of the value, an opening parenthesis or a comma (optional spaces allowed after those), at any nesting depth. Parts without = are kept. AUTHORITY: in a URL with a scheme, everything between :// and the last @ before the first /, ? or # is replaced by the placeholder. Paths are kept verbatim; a fragment is kept except for its key=value parts.",
+  "_note": "Canonical redaction vectors for optional request logging. Shared byte for byte by sp-laravel-api-js (test/vectors/log-redaction.json) and sp-laravel-api-dart (test/vectors/log_redaction.json). The placeholder is the text <redacted>. NORMALISATION: a key is lower-cased and every - and _ is removed. KEYS: a key is sensitive when its normalised form (1) equals password, secret, code, otp, jwt, token, apikey, accesstoken, refreshtoken, pin, pwd, pass, sig, authorization or cookie, OR (2) matches the regular expression (tokens?|secrets?|passwords?|passwd|passphrase|passcode|apikeys?|privatekey|secretkey|clientkey|signingkey|encryptionkey|signature|credential|otp|(otp|verification|auth|mfa|reset|recovery|backup)codes?)$ , OR (3) starts with password. Other keys that merely contain such a word stay visible (error_code, tokens_left, zipcode, primary_key, next_cursor, secretary, idempotency_key, country_code, promo_code, key, status_code, status); credential is singular on purpose, so a credentials key holding an object is walked, not redacted whole. TRUNCATION: the limit is 2048 UTF-16 code units; a longer body keeps its first 2048 (one fewer when the cut would split a surrogate pair) and appends the marker …[truncated]. headers: input.headers is a map of header name to value and input.tenantHeader is the configured tenant header name or null; expected is the map after redaction (names keep the case they were given). A header value becomes the placeholder when its lower-cased name equals the tenant header lower-cased, equals authorization, cookie, set-cookie or x-csrf-token, or contains any of auth, token, key, secret, cookie, session, csrf, xsrf, password, credential, signature, pass, otp, jwt, bearer. Otherwise the values of location, content-location, referer, referrer and origin are URLs and go through the urls rule; in a link value every URL between < and > goes through the urls rule; in a refresh value the text after the first url= (any case, spaces allowed around =) goes through the urls rule, or the whole value when there is no url=. bodies: input is any JSON value; a JSON string is a body that was sent as text: a string holding a JSON object or array is parsed, redacted and re-serialised compactly with no spaces and keys in the original order, and a url-encoded string has its sensitive values replaced (the query rule below); any other string is only truncated and is NOT scanned for secrets. A sensitive key has its whole value replaced, at any depth and inside arrays; JSON stringified inside a string value is not scanned. urls: input is a full or relative URL. QUERY RULE (applied to the query and to the fragment): the text is split on &; a part key=value with a non-empty key has its value replaced when the percent-decoded key, or any of its [bracket] segments or comma-separated parts (an anyOf key such as api_token,email), is a sensitive key; a filter group (percent-decoded key matching ^(not\\.)?(and|or)$ ) has its whole value replaced when the percent-decoded value contains a column name that is a sensitive key, a column name being the text before the first dot that follows the start of the value, an opening parenthesis or a comma (optional spaces allowed after those), at any nesting depth; a select (percent-decoded key equal to select) has its whole value replaced when the percent-decoded value holds an embed filter col=op.value whose column is a sensitive key, a column being the text between the start of the value, an opening parenthesis or a comma (optional spaces allowed after those) and the next =, at any nesting depth (a select that only names a sensitive column, with no =, is kept). Parts without = are kept. AUTHORITY: in a URL with a scheme, everything between :// and the last @ before the first /, ? or # is replaced by the placeholder. Paths are kept verbatim; a fragment is kept except for its key=value parts.",
   "headers": [
     {
       "name": "Authorization header",
@@ -2039,6 +2039,51 @@
       "name": "a filter group key is matched exactly",
       "input": "https://api.example.com/api/x?order=(token.eq.1)&ors=(token.eq.2)",
       "expected": "https://api.example.com/api/x?order=(token.eq.1)&ors=(token.eq.2)"
+    },
+    {
+      "name": "select with a sensitive embed filter (percent-encoded)",
+      "input": "https://api.example.com/api/users?select=id%2Csessions%28id%2Ctoken%3Deq.SECRET_EMBED%29&per_page=25",
+      "expected": "https://api.example.com/api/users?select=<redacted>&per_page=25"
+    },
+    {
+      "name": "nested embed filter with a sensitive column",
+      "input": "https://api.example.com/api/users?select=id,a(id,b(id,token=eq.S))",
+      "expected": "https://api.example.com/api/users?select=<redacted>"
+    },
+    {
+      "name": "embed filter with a sensitive column after a space",
+      "input": "https://api.example.com/api/users?select=id,sessions(id, api_key=eq.S)",
+      "expected": "https://api.example.com/api/users?select=<redacted>"
+    },
+    {
+      "name": "select with a non-sensitive embed filter is unchanged",
+      "input": "https://api.example.com/api/users?select=id,name,sessions(id,status=eq.open)",
+      "expected": "https://api.example.com/api/users?select=id,name,sessions(id,status=eq.open)"
+    },
+    {
+      "name": "select naming sensitive columns without a filter is unchanged",
+      "input": "https://api.example.com/api/users?select=id,api_token,sessions(token)",
+      "expected": "https://api.example.com/api/users?select=id,api_token,sessions(token)"
+    },
+    {
+      "name": "anyOf key with the sensitive column first",
+      "input": "https://api.example.com/api/users?api_token%2Cemail=eq.SECRET&per_page=25",
+      "expected": "https://api.example.com/api/users?api_token%2Cemail=<redacted>&per_page=25"
+    },
+    {
+      "name": "anyOf key with the sensitive column in the middle",
+      "input": "https://api.example.com/api/users?name,api_token,email=eq.SECRET",
+      "expected": "https://api.example.com/api/users?name,api_token,email=<redacted>"
+    },
+    {
+      "name": "anyOf key with only non-sensitive columns is unchanged",
+      "input": "https://api.example.com/api/invoices?name%2Csku=ilike.%25acme%25",
+      "expected": "https://api.example.com/api/invoices?name%2Csku=ilike.%25acme%25"
+    },
+    {
+      "name": "or filter group value starting with the column",
+      "input": "https://api.example.com/api/users?or=password.eq.S",
+      "expected": "https://api.example.com/api/users?or=<redacted>"
     }
   ]
 }
