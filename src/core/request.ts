@@ -79,8 +79,9 @@ export interface RequestOptions {
    * `'json'` (default): parse the body and unwrap the `{ success, data, meta }` envelope (a body that is not
    * JSON comes back as text). `'text'`: return the raw body as a string (`''` when empty), never parsed;
    * errors are handled as usual.
+   * `'blob'` / `'arrayBuffer'`: return `res.blob()` / `res.arrayBuffer()`; no envelope parse or `success: false` check.
    */
-  responseType?: 'json' | 'text';
+  responseType?: 'json' | 'text' | 'blob' | 'arrayBuffer';
   /**
    * Per-call retry override:
    * - `false`: disable retry for this call
@@ -286,10 +287,15 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
       const t0 = lg === undefined ? 0 : Date.now();
       let res: Response;
       let text = '';
+      let bin: Blob | ArrayBuffer | undefined;
       let failure: SpApiError | null = null;
       try {
         res = await doFetch(url, { method: o.method, headers, body, signal: controller.signal });
-        if (res.ok) text = res.status === 204 ? '' : await res.text();
+        if (res.ok) {
+          if (o.responseType === 'blob') bin = await res.blob();
+          else if (o.responseType === 'arrayBuffer') bin = await res.arrayBuffer();
+          else text = res.status === 204 ? '' : await res.text();
+        }
         else {
           failure = await errorFromResponse(res, {
             module: o.module,
@@ -315,7 +321,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
 
       let parsed: unknown;
       let isParsed = false;
-      if (failure === null && o.responseType !== 'text' && text.trim() !== '') {
+      if (failure === null && bin === undefined && o.responseType !== 'text' && text.trim() !== '') {
         try {
           parsed = JSON.parse(text);
         } catch {
@@ -362,6 +368,7 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
       }
 
       if (lg) fin(lg, { attempt: attempt + 1, t0, sent: headers, res, text, responseType: o.responseType });
+      if (bin !== undefined) return { data: bin as T, meta: {}, response: res };
       if (o.responseType === 'text') return { data: text as T, meta: {}, response: res };
       if (!isParsed) return { data: null as T, meta: {}, response: res };
       if (isRecord(parsed) && parsed.success === true) {

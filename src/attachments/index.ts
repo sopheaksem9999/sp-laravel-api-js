@@ -124,6 +124,13 @@ export interface ViewUrlOptions {
   format?: 'webp' | 'jpg' | 'png' | 'gif';
 }
 
+/** Transport options for `viewBytes` / `viewBlob`. */
+export interface ViewFetchOptions {
+  signal?: AbortSignal;
+  headers?: Record<string, string>;
+  timeoutMs?: number;
+}
+
 /**
  * Paging for `folders.list` / `folders.listPage`. `per_page` is always sent (this, else `defaults.perPage`, else 25).
  * `cursor: null` (or `''`) asks for the first cursor page (`cursor=0`); `page` is offset mode.
@@ -177,6 +184,10 @@ export interface Attachments {
   cloneTemp(id: AttachmentId, o?: CloneTempOptions): Promise<Attachment>;
   /** Builds `{baseUrl}/sp_attachments/{rpc}/{id}/view?...`; no network call. */
   viewUrl(id: AttachmentId, o?: ViewUrlOptions): string;
+  /** Authenticated `GET .../{id}/view`; the exact response bytes (never decoded as text). */
+  viewBytes(id: AttachmentId, o?: ViewUrlOptions & ViewFetchOptions): Promise<Uint8Array>;
+  /** Like `viewBytes`, as a `Blob`. */
+  viewBlob(id: AttachmentId, o?: ViewUrlOptions & ViewFetchOptions): Promise<Blob>;
   /** Builds `{baseUrl}/sp_attachments/{rpc}/{id}/download`; no network call. */
   downloadUrl(id: AttachmentId): string;
   forRecord(table: string, id: AttachmentId): RecordAttachments;
@@ -257,6 +268,37 @@ export function attachments(api: Api, options: AttachmentsOptions = {}): Attachm
     });
   };
 
+  /** Validates the resize options and builds the view query string. */
+  const viewQuery = (o: ViewUrlOptions): URLSearchParams => {
+    checkDim('w', o.w);
+    checkDim('h', o.h);
+    if (o.fit !== undefined && o.fit !== 'contain' && o.fit !== 'crop') throw bad('attachments.viewUrl: fit must be "contain" or "crop"');
+    if (o.format !== undefined && !['webp', 'jpg', 'png', 'gif'].includes(o.format)) {
+      throw bad('attachments.viewUrl: format must be one of webp, jpg, png, gif');
+    }
+    const qs = new URLSearchParams();
+    if (o.w !== undefined) qs.set('w', String(o.w));
+    if (o.h !== undefined) qs.set('h', String(o.h));
+    if (o.fit !== undefined) qs.set('fit', o.fit);
+    if (o.format !== undefined) qs.set('format', o.format);
+    return qs;
+  };
+
+  const viewFetch = async <T>(id: AttachmentId, o: ViewUrlOptions & ViewFetchOptions, responseType: 'blob' | 'arrayBuffer'): Promise<T> => {
+    const query = viewQuery(o);
+    const r = await api.request<T>({
+      method: 'GET',
+      path: path(id, 'view'),
+      query,
+      signal: o.signal,
+      headers: o.headers,
+      timeoutMs: o.timeoutMs,
+      module: MODULE,
+      responseType,
+    });
+    return r.data;
+  };
+
   const { uploadDirect, uploadMultipart } = directUploads(api, (fn) => path(fn));
 
   const formUpload = async (file: UploadSource, o: UploadOptions): Promise<Attachment> => {
@@ -308,20 +350,15 @@ export function attachments(api: Api, options: AttachmentsOptions = {}): Attachm
     },
 
     viewUrl(id, o = {}) {
-      checkDim('w', o.w);
-      checkDim('h', o.h);
-      if (o.fit !== undefined && o.fit !== 'contain' && o.fit !== 'crop') throw bad('attachments.viewUrl: fit must be "contain" or "crop"');
-      if (o.format !== undefined && !['webp', 'jpg', 'png', 'gif'].includes(o.format)) {
-        throw bad('attachments.viewUrl: format must be one of webp, jpg, png, gif');
-      }
-      const qs = new URLSearchParams();
-      if (o.w !== undefined) qs.set('w', String(o.w));
-      if (o.h !== undefined) qs.set('h', String(o.h));
-      if (o.fit !== undefined) qs.set('fit', o.fit);
-      if (o.format !== undefined) qs.set('format', o.format);
-      const q = qs.toString();
+      const q = viewQuery(o).toString();
       return `${base}/${path(id, 'view')}${q === '' ? '' : `?${q}`}`;
     },
+
+    async viewBytes(id, o = {}) {
+      return new Uint8Array(await viewFetch<ArrayBuffer>(id, o, 'arrayBuffer'));
+    },
+
+    viewBlob: (id, o = {}) => viewFetch<Blob>(id, o, 'blob'),
 
     downloadUrl: (id) => `${base}/${path(id, 'download')}`,
 

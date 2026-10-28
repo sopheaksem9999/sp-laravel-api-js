@@ -6,6 +6,8 @@ export type FnOptions = {
   id?: string | number;
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
+  /** Query string. Not the table `Query`: nothing is added (no `per_page`); null/undefined entries are skipped, booleans become `'true'`/`'false'`. */
+  query?: URLSearchParams | Record<string, string | number | boolean | null | undefined>;
 } & CallOptions;
 
 /**
@@ -28,9 +30,15 @@ const encodePath = (p: string): string => p.split('/').map(seg).join('/');
 type Request = ReturnType<typeof createRequester>;
 
 async function send<T>(request: Request, path: string, o: FnOptions | undefined): Promise<T> {
-  const { id: _id, method, body, ...rest } = o ?? {};
+  const { id: _id, method, body, query, ...rest } = o ?? {};
   void _id;
-  const r = await request<T>({ method: method ?? (body !== undefined ? 'POST' : 'GET'), path, body, ...rest });
+  let params: URLSearchParams | undefined;
+  if (query instanceof URLSearchParams) params = query;
+  else if (query !== undefined) {
+    params = new URLSearchParams();
+    for (const [k, v] of Object.entries(query)) if (v !== null && v !== undefined) params.set(k, String(v));
+  }
+  const r = await request<T>({ method: method ?? (body !== undefined ? 'POST' : 'GET'), path, body, query: params, ...rest });
   return r.data;
 }
 

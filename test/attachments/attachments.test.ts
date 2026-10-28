@@ -383,3 +383,75 @@ describe('attachments.folders', () => {
     expect((await rejection(att.folders.remove(1))).code).toBe('not_found');
   });
 });
+
+describe('viewBytes / viewBlob', () => {
+  const allBytes = Uint8Array.from({ length: 256 }, (_, i) => i);
+  const bytesRes = (): Response => new Response(allBytes.slice(), { status: 200, headers: { 'Content-Type': 'application/octet-stream' } });
+
+  it('returns exact non-UTF-8 bytes with auth and tenant headers', async () => {
+    const { att, calls } = setup(() => bytesRes(), {
+      auth: { getHeaders: async () => ({ Authorization: 'Bearer t' }) },
+      tenant: { header: 'X-Tenant', value: () => 'acme' },
+    });
+    const out = await att.viewBytes(7);
+    expect(out).toBeInstanceOf(Uint8Array);
+    expect(Array.from(out)).toEqual(Array.from(allBytes));
+    expect(calls[0]!.method).toBe('GET');
+    expect(calls[0]!.url.pathname).toBe('/api/sp_attachments/rpc/7/view');
+    expect(calls[0]!.headers.get('authorization')).toBe('Bearer t');
+    expect(calls[0]!.headers.get('x-tenant')).toBe('acme');
+  });
+
+  it('viewBlob returns a Blob with the bytes', async () => {
+    const { att } = setup(() => bytesRes());
+    const b = await att.viewBlob(7);
+    expect(b).toBeInstanceOf(Blob);
+    expect(new Uint8Array(await b.arrayBuffer())).toEqual(allBytes);
+  });
+
+  it('sends resize options and validates them', async () => {
+    const { att, calls } = setup(() => bytesRes());
+    await att.viewBytes(7, { w: 64, h: 64, fit: 'crop', format: 'webp' });
+    expect(calls[0]!.url.search).toBe('?w=64&h=64&fit=crop&format=webp');
+    await expect(att.viewBytes(7, { w: 10 })).rejects.toMatchObject({ code: 'unencodable_value' });
+  });
+
+  it('keeps 404 as not_found', async () => {
+    const { att } = setup(() => fail(404));
+    await expect(att.viewBytes(7)).rejects.toMatchObject({ code: 'not_found' });
+  });
+
+  it('returns a success:false looking payload as bytes', async () => {
+    const { att } = setup(() => new Response('{"success":false}', { status: 200 }));
+    expect(new TextDecoder().decode(await att.viewBytes(7))).toBe('{"success":false}');
+  });
+});
+
+describe('form upload re-send', () => {
+  const content = 'x'.repeat(5000);
+  const fileText = async (s: Seen): Promise<string> => {
+    const f = (s.rawBody as FormData).get('file') as File;
+    return f.text();
+  };
+
+  it('re-sends full content after a 401 refresh', async () => {
+    const { att, calls } = setup((_s, n) => (n === 0 ? fail(401) : json({ id: 1 })), {
+      auth: { getHeaders: async () => ({}), handleUnauthorized: async () => true },
+    });
+    await att.upload(new Blob([content]));
+    expect(calls).toHaveLength(2);
+    expect(calls[1]!.rawBody).toBeInstanceOf(FormData);
+    expect(await fileText(calls[1]!)).toBe(content);
+  });
+
+  it('re-sends full content after a 503 retry', async () => {
+    const { api, calls } = setup((_s, n) => (n === 0 ? fail(503) : json({ id: 1 })), {
+      retry: { maxAttempts: 1, backoffMs: 1, jitter: false },
+    });
+    const fd = new FormData();
+    fd.append('file', new Blob([content]), 'a.bin');
+    await api.request({ method: 'POST', path: 'sp_attachments/rpc/upload', body: fd, retry: true });
+    expect(calls).toHaveLength(2);
+    expect(await fileText(calls[1]!)).toBe(content);
+  });
+});
