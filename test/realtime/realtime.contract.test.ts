@@ -26,6 +26,7 @@ describe('realtime contract (RecordMutated broadcast payload)', () => {
         action,
         record: { id: 1 },
         queryKey: api.keys.table('invoices'),
+        raw: expect.objectContaining({ tenant_id: 'acme' }),
       });
     }
   });
