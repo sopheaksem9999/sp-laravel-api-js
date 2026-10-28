@@ -21,14 +21,17 @@ describe('realtime handler', () => {
   it('maps a payload to onChange with the table prefix key', () => {
     const { api, rt } = setup();
     const seen: RealtimeChange[] = [];
-    rt.handler({ onChange: (c) => seen.push(c) })(payload('created'));
+    const p = payload('created');
+    rt.handler({ onChange: (c) => seen.push(c) })(p);
     expect(seen).toHaveLength(1);
     expect(seen[0]).toEqual({
       table: 'invoices',
       action: 'created',
       record: { id: 7, total: 10 },
       queryKey: api.keys.table('invoices'),
+      raw: p,
     });
+    expect(seen[0]!.raw).toBe(p);
   });
 
   it.each(['created', 'updated', 'deleted', 'restored', 'upserted'])('accepts the %s action', (action) => {
@@ -53,7 +56,7 @@ describe('realtime handler', () => {
     const record = { id: 1, nested: { a: [1, 2] } };
     rt.handler({ onChange })(payload('updated', { record, extra: 'x', more: { y: 1 } }));
     expect(onChange.mock.calls[0]![0].record).toBe(record);
-    expect(Object.keys(onChange.mock.calls[0]![0]).sort()).toEqual(['action', 'queryKey', 'record', 'table']);
+    expect(Object.keys(onChange.mock.calls[0]![0]).sort()).toEqual(['action', 'queryKey', 'raw', 'record', 'table']);
   });
 
   it('allows any record value', () => {
@@ -222,5 +225,90 @@ describe('realtime names', () => {
   it('eventName is {table}.{action}', () => {
     expect(rt.eventName('invoices', 'created')).toBe('invoices.created');
     expect(rt.eventName('invoices', 'upserted')).toBe('invoices.upserted');
+  });
+});
+
+describe('realtime handler: eventName, raw and onUnhandled', () => {
+  it('routes a custom payload to onUnhandled by identity, not onChange', () => {
+    const { rt } = setup();
+    const onChange = vi.fn();
+    const onUnhandled = vi.fn();
+    const p = { courier_id: 3, lat: 1.5, lng: 2.5 };
+    rt.handler({ onChange, onUnhandled })(p, 'courier_location.updated');
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onUnhandled).toHaveBeenCalledTimes(1);
+    const e = onUnhandled.mock.calls[0]![0];
+    expect(e.payload).toBe(p);
+    expect(e.eventName).toBe('courier_location.updated');
+  });
+
+  it('routes an unknown action with table/record to onUnhandled', () => {
+    const { rt } = setup();
+    const onChange = vi.fn();
+    const onUnhandled = vi.fn();
+    const p = payload('archived');
+    rt.handler({ onChange, onUnhandled })(p);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onUnhandled.mock.calls[0]![0]).toEqual({ payload: p });
+  });
+
+  it('passes eventName to onChange and keeps raw identity', () => {
+    const { rt } = setup();
+    const onChange = vi.fn();
+    const p = payload('updated');
+    rt.handler({ onChange })(p, 'invoices.updated');
+    expect(onChange.mock.calls[0]![0].eventName).toBe('invoices.updated');
+    expect(onChange.mock.calls[0]![0].raw).toBe(p);
+  });
+
+  it.each([
+    ['record array', { table: 'orders', action: 'created', record: [1, 2] }, true],
+    ['record string', { table: 'orders', action: 'created', record: 'x' }, true],
+    ['non-string table', { table: 5, action: 'created', record: {} }, false],
+    ['null', null, false],
+    ['string', 'hello', false],
+    ['array', [1], false],
+  ])('does not throw for %s', (_n, p, isRecord) => {
+    const { rt } = setup();
+    const onChange = vi.fn();
+    const onUnhandled = vi.fn();
+    expect(() => rt.handler({ onChange, onUnhandled })(p)).not.toThrow();
+    expect(onChange).toHaveBeenCalledTimes(isRecord ? 1 : 0);
+    expect(onUnhandled).toHaveBeenCalledTimes(isRecord ? 0 : 1);
+    expect(() => rt.handler({ onChange })(p)).not.toThrow();
+  });
+
+  it('swallows a throwing onUnhandled and reports once', () => {
+    const events: unknown[] = [];
+    const { rt } = setup((e) => events.push(e));
+    const h = rt.handler({
+      onChange: vi.fn(),
+      onUnhandled: () => {
+        throw new Error('boom');
+      },
+    });
+    expect(() => h({ a: 1 })).not.toThrow();
+    expect(events).toHaveLength(1);
+    expect((events[0] as { type: string }).type).toBe('realtime_handler_error');
+  });
+
+  it('swallows a rejecting onUnhandled and reports once', async () => {
+    const events: unknown[] = [];
+    const { rt } = setup((e) => events.push(e));
+    rt.handler({ onChange: vi.fn(), onUnhandled: () => Promise.reject(new Error('no')) })({ a: 1 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(events).toHaveLength(1);
+  });
+
+  it('routes a payload with a throwing getter to onUnhandled', () => {
+    const { rt } = setup();
+    const onUnhandled = vi.fn();
+    const p = {
+      get table(): string {
+        throw new Error('x');
+      },
+    };
+    expect(() => rt.handler({ onChange: vi.fn(), onUnhandled })(p)).not.toThrow();
+    expect(onUnhandled).toHaveBeenCalledTimes(1);
   });
 });

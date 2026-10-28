@@ -150,6 +150,8 @@ describe('subscribeTenant', () => {
       action: 'created',
       record: { id: 100, total: 200 },
       queryKey: api.keys.table('invoices'),
+      eventName: 'invoices.created',
+      raw: expect.objectContaining({ tenant_id: 7 }),
     });
   });
 
@@ -197,5 +199,28 @@ describe('subscribeTenant', () => {
 
     expect(events).toHaveLength(1);
     expect((events[0] as { type: string }).type).toBe('realtime_handler_error');
+  });
+
+  it('binds custom events as-is, delivers to onUnhandled with the name, and unsubscribes exactly them', () => {
+    const { echo, channels } = createMockEcho();
+    const onChange = vi.fn();
+    const onUnhandled = vi.fn();
+    const unsub = subscribeTenant(echo, api, {
+      tenantId: 1,
+      tables: ['orders'],
+      events: ['.courier_location.updated'],
+      onChange,
+      onUnhandled,
+    });
+    const l = channels.get('tenant.1')!.listeners;
+    expect(l.get('.courier_location.updated')).toHaveLength(1);
+    const p = { courier_id: 3, lat: 1, lng: 2 };
+    l.get('.courier_location.updated')![0]!(p);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onUnhandled.mock.calls[0]![0].payload).toBe(p);
+    expect(onUnhandled.mock.calls[0]![0].eventName).toBe('courier_location.updated');
+    unsub();
+    expect(l.get('.courier_location.updated')).toHaveLength(0);
+    expect(l.get('.orders.created')).toHaveLength(0);
   });
 });
