@@ -74,6 +74,16 @@ export class SpApiError extends Error {
     this.body = init.body ?? null;
     this.response = init.response ?? null;
   }
+
+  /** True for a failure with no HTTP response: a network failure or a timeout (not other local errors). */
+  get isTransport(): boolean {
+    return this.status === 0 && (this.code === 'network' || this.code === 'timeout');
+  }
+
+  /** True when the server answered (any HTTP status). */
+  get isHttp(): boolean {
+    return this.status > 0;
+  }
 }
 
 /** Type guard for `SpApiError`. */
@@ -111,8 +121,26 @@ function normaliseFieldErrors(raw: unknown): Record<string, string[]> {
   for (const [key, value] of Object.entries(raw)) {
     if (Array.isArray(value)) out[key] = value.map(String);
     else if (typeof value === 'string') out[key] = [value];
+    else if (key === 'retry_after_seconds' && typeof value === 'number' && Number.isFinite(value)) {
+      out[key] = [String(value)];
+    }
   }
   return out;
+}
+
+/** Parses a number or numeric string of seconds; null when not finite or negative (`zeroOk` keeps 0). */
+function parseSeconds(v: unknown, zeroOk: boolean): number | null {
+  let n: number;
+  if (typeof v === 'number') n = v;
+  else if (typeof v === 'string' && v.trim() !== '') n = Number(v);
+  else return null;
+  if (!Number.isFinite(n) || n < 0 || (n === 0 && !zeroOk)) return null;
+  return n;
+}
+
+/** `errors.retry_after_seconds`: the first element or a bare value; must be > 0. */
+function fromErrors(v: unknown): number | null {
+  return parseSeconds(Array.isArray(v) ? v[0] : v, false);
 }
 
 /** Converts a non-2xx `Response` into an `SpApiError`, consuming its body. */
@@ -153,13 +181,10 @@ export function errorFromBody(res: Response, text: string, ctx: ErrorContext = {
     (typeof meta?.request_id === 'string' && meta.request_id !== '' ? meta.request_id : null) ??
     res.headers.get('X-Request-ID');
 
-  let retryAfter: number | null = null;
-  if (res.status === 429) {
-    const header = res.headers.get('Retry-After');
-    // Number('') is 0: an empty or blank header must read as "unknown", not "retry now".
-    const secs = header === null || header.trim() === '' ? NaN : Number(header);
-    if (Number.isFinite(secs) && secs >= 0) retryAfter = secs;
-  }
+  const retryAfter =
+    parseSeconds(res.headers.get('Retry-After'), true) ??
+    parseSeconds(obj?.retry_after, true) ??
+    fromErrors(isRecord(obj?.errors) ? obj.errors.retry_after_seconds : undefined);
 
   return new SpApiError({
     status: res.status,
@@ -177,12 +202,11 @@ export function errorFromBody(res: Response, text: string, ctx: ErrorContext = {
 
 /** Builds an `SpApiError` for a failure with no HTTP response (network failure or timeout). */
 export function transportError(kind: 'network' | 'timeout', cause: unknown, module?: string): SpApiError {
-  const detail = cause instanceof Error ? cause.message : '';
   const base = kind === 'timeout' ? 'Request timed out' : 'Network request failed';
   return new SpApiError({
     status: 0,
     code: kind,
-    message: detail === '' ? base : `${base}: ${detail}`,
+    message: base,
     module: module ?? null,
     cause,
   });

@@ -149,3 +149,66 @@ describe('errorFromBody', () => {
     expect(errorFromBody(res, '{"success":false,"error_code":7}').code).toBe('unknown');
   });
 });
+
+describe('isTransport / isHttp', () => {
+  it('network and timeout failures are transport, keep the cause and a safe message', () => {
+    const cause = new Error('secret-token-abc at https://x.example/?k=1');
+    const net = transportError('network', cause);
+    expect(net.isTransport).toBe(true);
+    expect(net.isHttp).toBe(false);
+    expect(net.cause).toBe(cause);
+    expect(String(net)).not.toContain('secret-token-abc');
+    expect(transportError('timeout', cause).isTransport).toBe(true);
+  });
+  it('an HTTP error is http, not transport', async () => {
+    const err = await errorFromResponse(json(500, { message: 'boom' }, { 'Retry-After': '5', 'X-Secret': 'hdr-secret' }));
+    expect(err.isHttp).toBe(true);
+    expect(err.isTransport).toBe(false);
+    expect(String(err)).toBe('SpApiError: boom');
+  });
+  it('local status-0 errors are not transport', () => {
+    const err = new SpApiError({ status: 0, code: 'unencodable_value', message: 'bad' });
+    expect(err.isTransport).toBe(false);
+    expect(err.isHttp).toBe(false);
+  });
+});
+
+describe('retryAfter sources', () => {
+  const ra = (body: unknown, headers: Record<string, string> = {}, status = 429) =>
+    errorFromBody(new Response('', { status, headers }), JSON.stringify(body));
+  it('reads errors.retry_after_seconds in its shapes', () => {
+    expect(ra({ errors: { retry_after_seconds: [3193] } }).retryAfter).toBe(3193);
+    expect(ra({ errors: { retry_after_seconds: ['3193'] } }).retryAfter).toBe(3193);
+    expect(ra({ errors: { retry_after_seconds: 3193 } }).retryAfter).toBe(3193);
+    expect(ra({ errors: { retry_after_seconds: [' 7 '] } }).retryAfter).toBe(7);
+  });
+  it('zero, negative, garbage and empty give null without throwing', () => {
+    for (const v of [[], ['abc'], [0], 0, -4, [-1], [''], [null], [{}], 'x']) {
+      expect(ra({ errors: { retry_after_seconds: v } }).retryAfter).toBeNull();
+    }
+  });
+  it('keeps fieldErrors.retry_after_seconds, also for a bare number', () => {
+    expect(ra({ errors: { retry_after_seconds: 12 } }).fieldErrors.retry_after_seconds).toEqual(['12']);
+    expect(ra({ errors: { retry_after_seconds: [3] } }).fieldErrors.retry_after_seconds).toEqual(['3']);
+  });
+  it('header beats body retry_after beats errors.retry_after_seconds', () => {
+    const body = { retry_after: 20, errors: { retry_after_seconds: [30] } };
+    expect(ra(body, { 'Retry-After': '10' }).retryAfter).toBe(10);
+    expect(ra(body).retryAfter).toBe(20);
+    expect(ra({ retry_after: '15' }).retryAfter).toBe(15);
+    expect(ra({ errors: { retry_after_seconds: [30] } }).retryAfter).toBe(30);
+    expect(ra(body, { 'Retry-After': '0' }).retryAfter).toBe(0);
+  });
+  it('a garbage header falls through to the body', () => {
+    expect(ra({ retry_after: 9 }, { 'Retry-After': 'Wed, 21 Oct 2026 07:28:00 GMT' }).retryAfter).toBe(9);
+  });
+  it('a non-429 status carrying Retry-After sets retryAfter', () => {
+    expect(ra({}, { 'Retry-After': '30' }, 503).retryAfter).toBe(30);
+    expect(ra({}, {}, 503).retryAfter).toBeNull();
+  });
+  it('applies on the 200 envelope path too', () => {
+    const e = ra({ success: false, errors: { retry_after_seconds: ['5'] } }, {}, 200);
+    expect(e.retryAfter).toBe(5);
+    expect(e.status).toBe(200);
+  });
+});
