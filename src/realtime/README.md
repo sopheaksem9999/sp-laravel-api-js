@@ -6,7 +6,7 @@ The module is **transport-free by design**: it does not open a socket itself and
 - **`subscribeTenant(echo, api, options)`**: binds all 5 mutation actions (`created`, `updated`, `deleted`, `restored`, `upserted`) for your specified tables with the required leading dot, attaches to `tenant.{id}` or `tenant.global`, and returns an unsubscribe function.
 - **`echoPusherAuthorizer(auth, options)`**: custom authorizer for Laravel Echo and Pusher-compatible broadcasters that signs private channel requests via `/broadcasting/auth` using the client's `ApiAuth` token with automatic 401 retry.
 
-For low-level integrations, `realtime(api).handler({ onChange })` can be wired to any custom WebSocket or SSE connection.
+For low-level integrations, `realtime(api).handler({ onChange, onUnhandled? })` returns a `(payload, eventName?) => void` callback that can be wired to any custom WebSocket or SSE connection.
 
 ## Quick Start (with Laravel Echo & Reverb)
 
@@ -47,6 +47,36 @@ const unsubscribe = subscribeTenant(echo, api, {
 
 // Later, to clean up:
 unsubscribe();
+```
+
+## Custom events, `onUnhandled`, `eventName` and `raw`
+
+`onChange` only receives valid record events: an object with a non-empty string `table` and one of the five actions. It gets a `RealtimeChange`: `{ table, action, record, queryKey, raw, eventName? }`, where `raw` is the payload exactly as received (the same object, not a copy) and `eventName` is the bound event name without the leading dot (`orders.updated`), set when the transport passes it (`subscribeTenant` always does). A `RealtimeChange` you build by hand (a test, a custom transport) must include `raw`.
+
+Every other payload (not an object, no string `table`, an unknown `action`, a custom event) is passed to the optional `onUnhandled({ eventName, payload })`, with the same rules as `onChange`: it never throws into the transport, and a throw or rejection is swallowed and reported once through `api.config.onEvent` as `{ type: 'realtime_handler_error' }`. Without `onUnhandled` those payloads are ignored.
+
+`subscribeTenant` takes `events`, a list of custom Echo event names that are bound as-is (add the leading dot if Echo needs it). Their payloads go through the same check, so a custom event with a record-shaped payload reaches `onChange`, and anything else `onUnhandled`.
+
+```ts
+// typecheck
+import { subscribeTenant, realtime, type EchoLike } from '@sokpheak/sp-laravel-api/realtime';
+
+export function setupLiveCourier(echo: EchoLike) {
+  return subscribeTenant(echo, api, {
+    tenantId: 5,
+    tables: ['orders'],
+    events: ['.courier_location.moved'],
+    onChange: (change) => console.log(change.eventName, change.action, change.raw),
+    onUnhandled: ({ eventName, payload }) => console.log(eventName, payload),
+  });
+}
+
+// Low level: wire the callback to any transport and pass the event name yourself.
+const onMessage = realtime(api).handler({
+  onChange: (change) => console.log(change.table),
+  onUnhandled: ({ eventName, payload }) => console.log(eventName, payload),
+});
+onMessage({ table: 'orders', action: 'created', record: { id: 1 } }, 'orders.created');
 ```
 
 ## Framework Integration
@@ -192,4 +222,4 @@ const echo = new Echo({
 - **Channel names:** The wire channel is `private-tenant.{id}` (or `private-tenant.global` when tenant ID is null, empty, `0` or `'0'`). Echo's `echo.private()` adds the `private-` prefix.
 - **Payload format:** `{ table, action, record, tenant_id, timestamp }`.
 - **Actions:** `created`, `updated`, `deleted`, `restored`, and batched `upserted` (`record = { count, match_on, keys }`).
-- **Error handling:** Malformed payloads and unknown actions are ignored. A throwing `onChange` handler is swallowed and reported to `api.config.onEvent({ type: 'realtime_handler_error' })` without breaking the WebSocket connection.
+- **Error handling:** Malformed payloads, unknown actions and custom events go to `onUnhandled` when given, and are ignored otherwise. A throwing (or rejecting) `onChange` or `onUnhandled` handler is swallowed and reported to `api.config.onEvent({ type: 'realtime_handler_error' })` without breaking the WebSocket connection.

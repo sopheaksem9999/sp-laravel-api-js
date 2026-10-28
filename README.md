@@ -75,11 +75,34 @@ for await (const row of invoices.iterate({ where: { status: 'open' }, perPage: 1
 | `quoting` | `true` | `false` for hosts older than 0.5.06: values that need quotes throw `unencodable_value` instead |
 | `driver` | none | `'mysql'` rejects the Postgres-only operators client-side (`unencodable_value`) |
 | `debug` | `false` | sends `X-Debug: 1` on every request (per call: `debug: true`) |
+| `retry` | off | automatic retry of transient failures, see [Retries](#retries) |
+| `treatSuccessFalseAsError` | `true` | a 2xx response whose JSON body is `{ success: false }` is thrown as `SpApiError`; `false` returns that body as `data` (see [Error handling](#error-handling)) |
 | `onEvent` | none | diagnostics hook. **Only the `realtime` module emits anything** (`{ type: 'realtime_handler_error' }` when your `onChange` throws); the core and the other modules never call it, so it is not a request log |
 
 `auth` is any object with `getHeaders(): Promise<Record<string, string>>`. It may also have `handleUnauthorized(failed?: { headers }): Promise<boolean>`: on a 401 the client calls it once, passing the headers sent on the failed attempt (lowercase keys), and, if it resolves `true`, retries the request once with fresh headers. Omit `auth` for public tables.
 
 Other table methods: `update` (PUT), `patch`, `remove`, `restore`, `upsert`, `aggregate`. `restore(id)` resolves `{ restored: number }` (the backend's count, typed `RestoreResult`), not the row; call `get(id)` afterwards if you need it. `api.fn('invoices', 'approve', { id: 7, method: 'POST' })` calls a table function and `api.rpc('auth/whoami')` a global one. `api.request()` is the low-level call for anything else.
+
+## Functions: `rpc` and `fn`
+
+`api.rpc(path, options?)` calls `{rpcPrefix}/{path}` and `api.fn(table, name, options?)` calls `{table}/{id?}/{rpcPrefix}/{name}`. Both resolve the unwrapped result: the `data` of a `{ success: true, data }` envelope, else the parsed body (text when it is not JSON, `null` when it is empty or a 204).
+
+```ts
+// typecheck
+const me = await api.rpc<{ id: number; name: string }>('auth/whoami'); // GET: no body
+const report = await api.rpc('reports/summary', {
+  query: { year: 2026, open: true, tag: null }, // ?year=2026&open=true (null/undefined are skipped; no per_page is added)
+});
+const approved = await api.fn('invoices', 'approve', { id: 7, method: 'POST', body: { note: 'ok' } });
+const exported = await api.rpc('reports/export', { method: 'POST', body: { format: 'csv' }, timeoutMs: 120_000 });
+console.log(me.name, report, approved, exported);
+```
+
+- `method` defaults to `POST` when a `body` is given and `GET` otherwise.
+- `query` is a `URLSearchParams` or a plain record (`string | number | boolean | null | undefined`; booleans are sent as `'true'` / `'false'`). It is not the table `Query`: nothing is serialised into filters.
+- `id` (for `fn`) and every path segment are encoded; an empty, `.` or `..` segment (including the `rpcPrefix`) throws `unencodable_value` before any request is sent.
+- Options also take the per-request options (`signal`, `headers`, `timeoutMs`, `log`), see [Per-request options](#per-request-options).
+- For a binary or text response use `api.request({ method, path, responseType })`: `'text'` returns the raw string, `'blob'` a `Blob` and `'arrayBuffer'` an `ArrayBuffer`, each as `result.data`. These three skip the envelope parse and the `success: false` check.
 
 ## Request logging
 
@@ -136,9 +159,100 @@ The query object is serialised for you; nobody hand-writes filter strings. What 
 - **`any` / `all` modifiers are never quoted.** `where: { name: { like: { any: ['a%', 'b%'] } } }` is sent as `name=like(any).{a%,b%}`. The host splits that list on plain commas and does not understand quotes, so an empty list, an empty item, or an item containing `,`, `{`, `}`, `"`, `\` or leading/trailing spaces throws `unencodable_value` (with or without `quoting`) instead of silently becoming a different filter.
 - **Lists are always `in.(...)`.** A bare array means `in`; a bare scalar means `eq`. The bracket syntax is never produced.
 - **Quoting.** Any value or list item containing `,`, `(`, `)`, `"` or `\`, or with leading or trailing spaces, is sent in double quotes (`eq."Acme, Inc."`). Other values are sent bare.
-- **Cursor paging.** `cursor: null` sends `cursor=0` (the first page); a cursor string is sent as is; an empty `cursor=` is never sent. `page.next` is the next cursor, or `null` at the end. `iterate()` handles this for you. Use `page: 2` for offset paging instead; offset mode never yields `next` (it is always `null` there, so step `page` yourself), and `iterate()` needs cursor mode.
+- **Cursor paging.** `cursor: null` (or `''`) sends `cursor=0` (the first page); a cursor string is sent as is; an empty `cursor=` is never sent. `page.next` is the next cursor, or `null` at the end. `iterate()` handles this for you. Use `page: 2` for offset paging instead; offset mode never yields `next` (it is always `null` there, so step `page` yourself), and `iterate()` needs cursor mode. See [Cursor pagination](#cursor-pagination).
 - **`per_page` is always sent** on list calls (default 25; set `defaults.perPage` on the client or `perPage` per query). `total: true` asks for a total, returned as `page.total`.
 - **Hosts older than 0.5.06** have no quoting and split every value on commas. Pass `createApi({ quoting: false })` and the serializer throws `SpApiError` with code `unencodable_value` for a value it cannot send safely, instead of sending a filter the server would misread.
+
+## Cursor pagination
+
+```ts
+// typecheck
+const pager = invoices.cursorPagination({
+  query: { where: { status: 'open' }, sort: { by: 'created_at', order: 'desc' } }, // a sort is needed for lastPage()
+  perPage: 20,
+  cursorColumn: 'created_at', // optional, sent as cursor_column=
+});
+
+const first = await pager.firstPage(); // cursor=0
+const second = await pager.nextPage(first); // null when first.next is null
+const back = second === null ? null : await pager.prevPage(second); // direction=prev, null when second.prev is null
+const last = await pager.lastPage(); // the final rows, in the query's own order
+
+// The same thing by hand on any list call:
+const before = await invoices.list({ cursor: 'abc', direction: 'prev', cursorColumn: 'created_at', perPage: 20 });
+console.log(first.next, back?.data.length, last.prev, before.prev);
+```
+
+- `direction` is `'next'` (the host default) or `'prev'` (the rows before `cursor`); `cursorColumn` names the column the cursor pages on (default on the host: the sorted column). Both are validated and sent as `direction=` and `cursor_column=`.
+- `next` is only set on a **full** page (as many rows as `per_page`): a short page is the end of the data and gives `next: null`. An empty page ends `iterate()`, as does a `next` that does not move on.
+- `lastPage()` reverses the query's `sort` and fetches the first page of that, then restores the order. It needs a `sort`: without one it throws `SpApiError` `unencodable_value` and sends nothing, because the host's default sort depends on the table. An omitted `order` counts as `desc`, the host default. An empty or short last page gives `prev: null`; `next` is always `null`.
+- `nextPage` / `prevPage` take a cursor string or a `Page` and resolve `null` (no request) when there is no cursor.
+
+## Retries
+
+Off by default. Enable it for the whole client with `retry`:
+
+```ts
+// typecheck
+import { createApi } from '@sokpheak/sp-laravel-api';
+
+const api = createApi({
+  baseUrl: 'https://api.example.com/api/v2',
+  retry: {
+    maxAttempts: 3, // retries after the first attempt; 0 (the default) means off
+    statusCodes: [408, 429, 502, 503, 504], // the default list
+    networkErrors: true, // network failures and timeouts are retried (default true)
+    backoffMs: 300, // 300 ms, then 600, 1200... capped at maxBackoffMs
+    maxBackoffMs: 5000,
+    jitter: true, // each delay is scaled by a random 50-100%
+  },
+});
+
+// Per call, on api.request: `true` uses the client policy, an object is its own policy, `false` switches it off.
+await api.request({ method: 'POST', path: 'invoices/sync', body: {}, retry: { maxAttempts: 2 } });
+await api.request({ method: 'GET', path: 'invoices', retry: false });
+```
+
+- The client-level policy retries `GET` and `HEAD` only. A write is retried only when that call asks for it with `retry: true` (client policy) or `retry: { maxAttempts }`, so make sure the endpoint is safe to repeat.
+- A per-call `retry` object does not merge with the client policy: unset fields take the defaults above (including `maxAttempts: 0`).
+- `retry` is an `api.request` option; table methods, `rpc` and `fn` use the client policy (and only for `GET`/`HEAD`).
+- A `Retry-After` header on the failed response (seconds or an HTTP date) replaces the backoff delay, capped at 30 s. A caller abort is never retried and also cancels the wait.
+- A 2xx `{ success: false }` envelope error is never retried (its status is not in the list). The 401 refresh (`handleUnauthorized`) is separate and does not use up a retry; it runs once per call.
+
+## Per-request options
+
+Every table method, `rpc` and `fn` take an options object with `signal`, `headers`, `timeoutMs` and `log` (also `debug` on `request`). `upsert` also takes `matchOn`, `refetch` and `select`.
+
+```ts
+// typecheck
+const ctl = new AbortController();
+const pending = invoices.list(
+  { where: { status: 'open' } },
+  {
+    signal: ctl.signal, // abort to cancel the request (also while a retry is waiting)
+    timeoutMs: 5_000, // overrides the client's timeoutMs; 0 means no timeout
+    headers: { 'X-Trace-Id': 'abc123' }, // applied last, so they win over the auth and tenant headers
+    log: true,
+  },
+);
+ctl.abort();
+try {
+  await pending;
+} catch (e) {
+  console.log(e === ctl.signal.reason); // an abort rejects with the signal's reason, not an SpApiError
+}
+
+// Insert-or-update by the match columns; resolves { id, payload }
+const result = await invoices.upsert({ ref_number: 'INV-1', total: 120 }, { matchOn: ['ref_number'] });
+// Re-read the row afterwards: resolves the row (with select, only those columns)
+const row = await invoices.upsert(
+  { ref_number: 'INV-1', total: 130 },
+  { matchOn: ['ref_number'], refetch: true, select: ['id', 'total'] },
+);
+console.log(result, row);
+```
+
+A timeout throws `SpApiError` `timeout`. `refetch: true` makes a second request (`GET {table}/{id}`) with the same options, and throws `SpApiError` `unknown` if the upsert response carries no `id`. The tenant header is added after the auth headers, so it replaces an auth header of the same name.
 
 ## Error handling
 
@@ -161,7 +275,34 @@ try {
 }
 ```
 
-Fields: `status` (0 for network/timeout), `code`, `message`, `fieldErrors`, `errorCode` (the backend's `error_code` when enveloped), `module`, `requestId`, `retryAfter` (seconds, from `Retry-After`), `body`, `response`.
+```ts
+// typecheck
+import { createApi, isSpApiError } from '@sokpheak/sp-laravel-api';
+
+try {
+  await invoices.get(7);
+} catch (e) {
+  if (!isSpApiError(e)) throw e;
+  if (e.isTransport) {
+    // no response: e.code is 'network' or 'timeout'; the underlying error is on e.cause only
+    console.log(e.code, e.cause);
+  } else if (e.isHttp) {
+    // the server answered: e.status > 0 (also 200 for an envelope error)
+    console.log(e.status, e.code, e.errorCode, e.requestId, e.retryAfter);
+  }
+}
+
+// Keep the old behaviour: a 2xx { success: false } body resolves as data instead of throwing.
+const lenient = createApi({ baseUrl: 'https://api.example.com/api/v2', treatSuccessFalseAsError: false });
+console.log(lenient.config.treatSuccessFalseAsError);
+```
+
+Fields: `status` (0 when there is no response), `code`, `message`, `fieldErrors`, `errorCode` (the backend's `error_code` when enveloped), `module`, `requestId`, `retryAfter` (seconds), `body`, `response`, `cause` (the original error of a `network` / `timeout` failure), and the getters `isTransport` (status 0 with code `network` or `timeout`; not another local error such as `unencodable_value`) and `isHttp` (`status > 0`).
+
+- **Transport messages are fixed** (`Network request failed`, `Request timed out`) because the underlying error text may carry a URL or a token; read `err.cause` if you need it. A caller abort is not an `SpApiError`: it rejects with the signal's reason.
+- **`retryAfter`** is the first of: the `Retry-After` header (any status; numeric seconds, `0` or more), the body's `retry_after`, then `errors.retry_after_seconds` (first element or a bare number or numeric string; must be above 0). Anything else gives `null`. `fieldErrors.retry_after_seconds` keeps the value as a string array.
+- **A 2xx response with a JSON object body `{ success: false }` is an error** (`treatSuccessFalseAsError`, default `true`), because the backend can answer an application failure with HTTP 200. It is thrown with `status` 200 (the real HTTP status, 2xx), `message` and `errorCode` from the body, and `code` from the envelope `error_code`: `10002` `unauthenticated`, `10008` `forbidden`, `10009` `not_found`, `10004` `validation` (`tenant_required` when the tenant header is the failing field), `10010` `server`, anything else `unknown`. Arrays, strings and `null` bodies, 3xx responses and `responseType` `'text'`, `'blob'` and `'arrayBuffer'` calls are not checked. `disabledOn404` modules still map only a real 404 to `module_disabled`; a 200 with `10009` is `not_found`.
+- **`error_code` 10002 refreshes like a 401**: with `auth.handleUnauthorized` the hook is called once and, if it resolves `true`, the call is retried once. The refresh is allowed once per call, also when the 401 comes after a network or status retry. Without the hook (or when it resolves `false`) the error is thrown at once.
 
 | `code` | Meaning |
 |---|---|
@@ -332,7 +473,26 @@ const src = att.viewUrl(file.id, { w: 200, fit: 'crop' }); // a string, no reque
 const big = await att.uploadMultipart(video, { onProgress: ({ loaded, total }) => show(loaded, total) });
 ```
 
-`upload`, `uploadDirect`, `uploadMultipart`, `cloneTemp`, `viewUrl`, `downloadUrl`, `forRecord(table, id)` (`list`, `link`, `unlink`) and `folders` (`list`, `listPage`, `create`, `update`, `remove`; list calls always send `per_page`). `uploadDirect` and `uploadMultipart` (resumable, `concurrency`, `onProgress`, `signal`) need `direct_upload.enabled` on the host and, in browsers, a bucket CORS policy exposing `ETag`; a 404 there is `module_disabled` with `module: 'attachments.direct_upload'`. `upload(file, { strategy: 'auto' })` picks multipart above `partSize × 2` (default part 8 MiB), direct only when `directUpload: true` is passed, else the form upload; `upload` without a strategy is the form upload. The multipart `upload_token` (in `onState` snapshots) is a credential. Protected files need the auth header, so fetch them as a blob for `<img>`, or use the signed `preview_url` when the host enables previews. A 404 is `module_disabled` only on calls with no lookup target (`upload` without `recordType`, `folders.list`, `folders.create`); on the others it stays `not_found` (missing record, link, attachment or folder), so a disabled module reads as `not_found` there and `capabilities()` (from `/docs`) is the reliable detector. See [src/attachments/README.md](src/attachments/README.md) for routes, field names and error handling.
+`upload`, `uploadDirect`, `uploadMultipart`, `cloneTemp`, `viewUrl`, `downloadUrl`, `forRecord(table, id)` (`list`, `link`, `unlink`) and `folders` (`list`, `listPage`, `create`, `update`, `remove`; list calls always send `per_page`). `uploadDirect` and `uploadMultipart` (resumable, `concurrency`, `onProgress`, `signal`) need `direct_upload.enabled` on the host and, in browsers, a bucket CORS policy exposing `ETag`; a 404 there is `module_disabled` with `module: 'attachments.direct_upload'`. `upload(file, { strategy: 'auto' })` picks multipart above `partSize × 2` (default part 8 MiB), direct only when `directUpload: true` is passed, else the form upload; `upload` without a strategy is the form upload. The multipart `upload_token` (in `onState` snapshots) is a credential. Protected files need the auth header, so fetch them with `viewBytes` / `viewBlob` (below) for `<img>`, or use the signed `preview_url` when the host enables previews. A 404 is `module_disabled` only on calls with no lookup target (`upload` without `recordType`, `folders.list`, `folders.create`); on the others it stays `not_found` (missing record, link, attachment or folder), so a disabled module reads as `not_found` there and `capabilities()` (from `/docs`) is the reliable detector. See [src/attachments/README.md](src/attachments/README.md) for routes, field names and error handling.
+
+Private images and files through the client's own auth and tenant headers (the exact bytes, never decoded as text):
+
+```ts
+// typecheck
+const stored = await att.upload(blob, { recordType: 'products', recordId: 7, name: 'photo.png' });
+const bytes = await att.viewBytes(stored.id, { w: 200, h: 200, fit: 'crop', format: 'webp' }); // Uint8Array
+const preview = await att.viewBlob(stored.id, { signal: controller.signal, timeoutMs: 10_000 }); // Blob
+img.src = URL.createObjectURL(preview);
+console.log(bytes.byteLength);
+
+try {
+  att.forRecord('products', ''); // throws synchronously: no request is sent
+} catch (e) {
+  console.log(e instanceof Error && e.name === 'SpApiError'); // code: 'unencodable_value'
+}
+```
+
+`viewBytes` / `viewBlob` take the `viewUrl` size options plus `signal`, `headers` and `timeoutMs`, and call `GET sp_attachments/{rpc}/{id}/view`. Attachment ids, record ids, the table name and the `rpcPrefix` go through the same guard as `rpc` path segments: an empty, `.` or `..` value throws `SpApiError` `unencodable_value` and no request is sent (`forRecord(table, id)` throws on the call itself, not on the first `list`/`link`).
 
 ### Audit
 
@@ -410,7 +570,24 @@ function setupRealtime(echo: EchoLike) {
 }
 ```
 
-The module is transport-free: `subscribeTenant` connects any Echo-compatible client to the tenant channel (`private-tenant.{id}`, or `private-tenant.global`), binds the leading-dot mutation events (`.invoices.created`, etc.), and returns an unsubscribe function. For low-level usage, `rt.handler({ onChange })` takes the broadcast payload `{ table, action, record, tenant_id, timestamp }` and maps it to `onChange({ table, action, record, queryKey })`, where `queryKey` is `api.keys.table(table)` (the prefix of every list and get key of that table).
+The module is transport-free: `subscribeTenant` connects any Echo-compatible client to the tenant channel (`private-tenant.{id}`, or `private-tenant.global`), binds the leading-dot mutation events (`.invoices.created`, etc.), and returns an unsubscribe function. For low-level usage, `rt.handler({ onChange, onUnhandled? })` takes the broadcast payload `{ table, action, record, tenant_id, timestamp }` and maps it to `onChange({ table, action, record, queryKey, raw, eventName? })`, where `queryKey` is `api.keys.table(table)` (the prefix of every list and get key of that table), `raw` is the payload exactly as received and `eventName` the bound event name without the leading dot.
+
+Custom events and payloads that are not valid record events reach `onUnhandled({ eventName, payload })` instead (without it they are ignored). Bind custom Echo event names with `events`:
+
+```ts
+// typecheck
+import { subscribeTenant, type EchoLike } from '@sokpheak/sp-laravel-api/realtime';
+
+function setupLiveCourier(echo: EchoLike) {
+  return subscribeTenant(echo, api, {
+    tenantId: 5,
+    tables: ['orders'],
+    events: ['.courier_location.moved'], // bound as-is: include the leading dot if Echo needs it
+    onChange: (change) => console.log(change.eventName, change.action, change.raw), // valid record events only
+    onUnhandled: ({ eventName, payload }) => console.log(eventName, payload), // everything else
+  });
+}
+```
 
 #### Broadcasting Services Setup
 - **Laravel Reverb:**
@@ -511,7 +688,7 @@ export function useRealtime(echo: EchoLike, tenantId: Ref<number | null>, tables
 - Mutation actions: `created`, `updated`, `deleted`, `restored`, and batched `upserted`.
 - Payload shape: `{ table, action, record, tenant_id, timestamp }`.
 - Bulk upsert broadcasts once, as one batched `upserted` event, with `record = { count, match_on, keys }`.
-- A malformed payload, or an `action` the client does not know, is ignored. The callback never throws; an `onChange` that throws is swallowed and reported through `onEvent` as `{ type: 'realtime_handler_error' }` with a fixed message and no payload data.
+- `onChange` only receives valid record events (an object with a non-empty string `table` and one of the five actions). A malformed payload, an `action` the client does not know or a custom event goes to `onUnhandled` when you gave one, and is ignored otherwise. Callbacks never throw into the transport: an `onChange` or `onUnhandled` that throws (or rejects) is swallowed and reported through `onEvent` as `{ type: 'realtime_handler_error' }` with a fixed message and no payload data. A hand-built `RealtimeChange` (for example in a test) must include `raw`.
 - With `bulk(table).*({ async: true })` the only way to see completion is the realtime events (or re-reading).
 
 See [src/realtime/README.md](src/realtime/README.md).
@@ -558,9 +735,12 @@ The CLI (Node 20+) emits an interface per `{Name}Read` / `{Name}Write` schema an
 
 | `@sokpheak/sp-laravel-api` | `sopheak/sp-laravel-api` (Laravel) |
 |---|---|
-| `0.1` | `^0.5.06` |
+| `0.1` to `0.3` | `^0.5.06` |
+| next minor (unreleased) | `^0.5.06` |
 
 Hosts older than 0.5.06 work with `quoting: false` (see above).
+
+The next minor changes some defaults (see `.changeset/` and the changelog when it is released). **Breaking:** a 2xx `{ success: false }` response now throws `SpApiError` (set `treatSuccessFalseAsError: false` to keep the old behaviour); `lastPage()` without a `sort` throws `unencodable_value`; the message of a `network` / `timeout` error no longer includes the underlying error text (`err.cause` keeps it); attachment ids, record ids and `rpcPrefix` are guarded (an empty, `.` or `..` value throws `unencodable_value`); `RealtimeChange` gains a required `raw`. Cursor `direction` / `cursorColumn`, `rpc` / `fn` `query`, `responseType` `'blob'` / `'arrayBuffer'`, `attachments.viewBytes` / `viewBlob`, `isTransport` / `isHttp` and the realtime `onUnhandled` / `events` need nothing from the host beyond `^0.5.06`.
 
 ## License
 

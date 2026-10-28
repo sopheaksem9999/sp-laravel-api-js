@@ -42,10 +42,14 @@ export interface RealtimeHandlerOptions {
 /** What `realtime(api)` returns. */
 export interface Realtime {
   /**
-   * Builds a transport-free callback for the broadcast payload. Malformed payloads (not an object, empty or
-   * non-string `table`, an `action` outside the five known ones) are ignored. The callback never throws: an
-   * `onChange` that throws is swallowed and reported once through `api.config.onEvent` as
-   * `{ type: 'realtime_handler_error' }` (a fixed message, no payload data); a rejected promise returned by `onChange` is reported the same way. Reading the payload never throws either: a throwing getter or Proxy trap (including on `record`) makes the payload ignored, silently.
+   * Builds a transport-free callback `(payload, eventName?)` for the broadcast payload. A valid record event (an
+   * object with a non-empty string `table` and an `action` among the five known ones) goes to `onChange` as a
+   * `RealtimeChange` (with `raw` and, when the transport passes it, `eventName`). Anything else (not an object, empty or
+   * non-string `table`, an unknown `action`, a custom event) goes to `onUnhandled({ eventName, payload })`, or is ignored
+   * when no `onUnhandled` was given. The callback never throws: a callback that throws is swallowed and reported once
+   * through `api.config.onEvent` as `{ type: 'realtime_handler_error' }` (a fixed message, no payload data); a rejected
+   * promise it returns is reported the same way. Reading the payload never throws either: a throwing getter or Proxy
+   * trap (including on `record`) makes the payload unhandled (it goes to `onUnhandled` as received, which is yours to read).
    */
   handler(o: RealtimeHandlerOptions): (payload: unknown, eventName?: string) => void;
   /** `tenant.{id}`, or `tenant.global` when the id is empty (the backend's `empty($tenantId)`: null, '', 0, '0'). */
