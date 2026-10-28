@@ -1,0 +1,5 @@
+---
+"@sokpheak/sp-laravel-api": minor
+---
+
+Optional, redacted request logging (D1) in the new `@sokpheak/sp-laravel-api/logging` subpath. `createLogger({ sink, mode?, maxBodyLength? })` is passed as `createApi({ logger })`; calls opt in with `log: true | { headers?, bodies? }` on table methods, `cursorPagination`, `rpc`, `fn` and `request` (`mode: 'all'` logs every call, `'off'` none; an unknown mode means `'perRequest'`). Off by default and silent without a logger; the main entry only gains the types (`LogEntry`, `LogMode`, `LogOption`, `RequestLogger`). One entry per HTTP attempt: method, redacted URL, status, duration, request id, 1-based attempt, error `code` / `errorCode`, plus redacted headers and bodies when asked for. Redaction cannot be switched off: sensitive header names, sensitive body and query keys at any depth, URL fragments, filter groups naming a sensitive column and credentials in URLs. Bodies are cut at 2048 characters. A sink, or a hand-written logger, that throws or rejects never changes a request result.
