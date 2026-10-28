@@ -95,6 +95,16 @@ function codeFromStatus(status: number): SpErrorCode {
   return 'unknown';
 }
 
+/** Envelope `error_code` to category, used when the HTTP status is 2xx/3xx (a `200 { success:false }` body). */
+function codeFromEnvelope(errorCode: unknown): SpErrorCode {
+  if (errorCode === 10002) return 'unauthenticated';
+  if (errorCode === 10008) return 'forbidden';
+  if (errorCode === 10009) return 'not_found';
+  if (errorCode === 10004) return 'validation';
+  if (errorCode === 10010) return 'server';
+  return 'unknown';
+}
+
 function normaliseFieldErrors(raw: unknown): Record<string, string[]> {
   if (!isRecord(raw)) return {};
   const out: Record<string, string[]> = {};
@@ -107,7 +117,11 @@ function normaliseFieldErrors(raw: unknown): Record<string, string[]> {
 
 /** Converts a non-2xx `Response` into an `SpApiError`, consuming its body. */
 export async function errorFromResponse(res: Response, ctx: ErrorContext = {}): Promise<SpApiError> {
-  const text = await res.text();
+  return errorFromBody(res, await res.text(), ctx);
+}
+
+/** Builds an `SpApiError` from a `Response` whose body text was already read (also used for `200 { success:false }`). */
+export function errorFromBody(res: Response, text: string, ctx: ErrorContext = {}): SpApiError {
   let body: unknown = text === '' ? null : text;
   if (text !== '') {
     try {
@@ -120,7 +134,7 @@ export async function errorFromResponse(res: Response, ctx: ErrorContext = {}): 
   const obj = isRecord(body) ? body : null;
   const fieldErrors = normaliseFieldErrors(obj?.errors);
 
-  let code = codeFromStatus(res.status);
+  let code = res.status < 400 ? codeFromEnvelope(obj?.error_code) : codeFromStatus(res.status);
   if (code === 'not_found' && ctx.disabledOn404 === true) code = 'module_disabled';
   if (
     code === 'validation' &&

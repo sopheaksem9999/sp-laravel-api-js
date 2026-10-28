@@ -358,3 +358,141 @@ describe('createRequester responseType', () => {
     expect((await request<string>({ method: 'GET', path: 'x' })).data).toBe('# hello');
   });
 });
+
+describe('createRequester 200 success:false', () => {
+  const fail = (error_code: number, extra: Record<string, unknown> = {}) =>
+    json({ success: false, error_code, message: 'x', ...extra });
+  const expired = () => fail(10002);
+  const auth = (hook?: ApiConfig['auth'] extends infer A ? A : never) => hook;
+
+  it('throws SpApiError with status 200, body errorCode and message, code unknown', async () => {
+    const { request } = setup([fail(5)]);
+    const e = await request({ method: 'GET', path: 'a' }).catch((x: unknown) => x);
+    expect(e).toBeInstanceOf(SpApiError);
+    expect(e).toMatchObject({ status: 200, errorCode: 5, message: 'x', code: 'unknown' });
+  });
+
+  it.each([
+    [10002, 'unauthenticated'],
+    [10008, 'forbidden'],
+    [10009, 'not_found'],
+    [10004, 'validation'],
+    [10010, 'server'],
+  ])('maps error_code %i to %s', async (n, code) => {
+    const { request } = setup([fail(n)]);
+    const e = await request({ method: 'GET', path: 'a' }).catch((x: unknown) => x);
+    expect(e).toMatchObject({ status: 200, code, errorCode: n });
+  });
+
+  it('a 10004 keyed by the tenant header is tenant_required', async () => {
+    const { request } = setup([fail(10004, { errors: { 'X-Tenant-ID': ['required'] } })], {
+      tenant: { header: 'X-Tenant-ID', value: () => null },
+    });
+    const e = await request({ method: 'GET', path: 'a' }).catch((x: unknown) => x);
+    expect(e).toMatchObject({ code: 'tenant_required', status: 200 });
+  });
+
+  it('{success:true} is unchanged', async () => {
+    const { request } = setup([ok()]);
+    expect((await request({ method: 'GET', path: 'a' })).data).toEqual({ id: 1 });
+  });
+
+  it('treatSuccessFalseAsError:false returns the body as data', async () => {
+    const { request } = setup([fail(5)], { treatSuccessFalseAsError: false });
+    const r = await request<{ success: boolean }>({ method: 'GET', path: 'a' });
+    expect(r.data).toMatchObject({ success: false, error_code: 5 });
+  });
+
+  it('array, string, null bodies and responseType text are untouched', async () => {
+    const { request } = setup([
+      json([{ success: false }]),
+      new Response('"success"', { status: 200 }),
+      new Response('null', { status: 200 }),
+      fail(5),
+    ]);
+    expect((await request({ method: 'GET', path: 'a' })).data).toEqual([{ success: false }]);
+    expect((await request({ method: 'GET', path: 'a' })).data).toBe('success');
+    expect((await request({ method: 'GET', path: 'a' })).data).toBeNull();
+    const t = await request<string>({ method: 'GET', path: 'a', responseType: 'text' });
+    expect(JSON.parse(t.data)).toMatchObject({ success: false });
+  });
+
+  it('10002 with a hook returning true refreshes once with fresh headers and returns the result', async () => {
+    let token = 'old';
+    const handleUnauthorized = vi.fn(async () => {
+      token = 'new';
+      return true;
+    });
+    const { request, calls } = setup([expired(), ok()], {
+      auth: { getHeaders: async () => ({ Authorization: `Bearer ${token}` }), handleUnauthorized },
+    });
+    const r = await request({ method: 'GET', path: 'a' });
+    expect(r.data).toEqual({ id: 1 });
+    expect(handleUnauthorized).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]?.headers.get('Authorization')).toBe('Bearer old');
+    expect(calls[1]?.headers.get('Authorization')).toBe('Bearer new');
+  });
+
+  it('a second 10002 throws after exactly 2 fetches', async () => {
+    const handleUnauthorized = vi.fn(async () => true);
+    const { request, fake } = setup([expired, expired], { auth: { getHeaders: async () => ({}), handleUnauthorized } });
+    const e = await request({ method: 'GET', path: 'a' }).catch((x: unknown) => x);
+    expect(e).toMatchObject({ errorCode: 10002, status: 200 });
+    expect(fake).toHaveBeenCalledTimes(2);
+    expect(handleUnauthorized).toHaveBeenCalledTimes(1);
+  });
+
+  it('10002 throws at once without auth, without a hook, or when the hook resolves false', async () => {
+    for (const a of [undefined, { getHeaders: async () => ({}) }, { getHeaders: async () => ({}), handleUnauthorized: async () => false }]) {
+      const { request, fake } = setup([expired()], a === undefined ? {} : { auth: auth(a) });
+      await expect(request({ method: 'GET', path: 'a' })).rejects.toMatchObject({ errorCode: 10002 });
+      expect(fake).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('a throwing hook propagates unchanged', async () => {
+    const boom = new Error('boom');
+    const { request, fake } = setup([expired()], {
+      auth: {
+        getHeaders: async () => ({}),
+        handleUnauthorized: async () => {
+          throw boom;
+        },
+      },
+    });
+    await expect(request({ method: 'GET', path: 'a' })).rejects.toBe(boom);
+    expect(fake).toHaveBeenCalledTimes(1);
+  });
+
+  it('a 401 after a network retry still refreshes', async () => {
+    const handleUnauthorized = vi.fn(async () => true);
+    const { request, fake } = setup(
+      [
+        () => {
+          throw new TypeError('down');
+        },
+        json({ message: 'no' }, 401),
+        ok(),
+      ],
+      {
+        auth: { getHeaders: async () => ({}), handleUnauthorized },
+        retry: { maxAttempts: 2, backoffMs: 1, jitter: false },
+      },
+    );
+    const r = await request({ method: 'GET', path: 'a' });
+    expect(r.data).toEqual({ id: 1 });
+    expect(handleUnauthorized).toHaveBeenCalledTimes(1);
+    expect(fake).toHaveBeenCalledTimes(3);
+  });
+
+  it('a 401 then a 10002 refreshes only once', async () => {
+    const handleUnauthorized = vi.fn(async () => true);
+    const { request, fake } = setup([json({ message: 'no' }, 401), expired()], {
+      auth: { getHeaders: async () => ({}), handleUnauthorized },
+    });
+    await expect(request({ method: 'GET', path: 'a' })).rejects.toMatchObject({ errorCode: 10002 });
+    expect(handleUnauthorized).toHaveBeenCalledTimes(1);
+    expect(fake).toHaveBeenCalledTimes(2);
+  });
+});

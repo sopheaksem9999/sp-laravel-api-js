@@ -1,4 +1,4 @@
-import { SpApiError, errorFromResponse, transportError } from './errors';
+import { SpApiError, errorFromBody, errorFromResponse, transportError } from './errors';
 import type { Query } from './query-types';
 import type { AttemptInfo, LogOption, LogRequest, RequestLogger } from './log-types';
 import { serializeQuery } from './serialize';
@@ -53,6 +53,12 @@ export interface ApiConfig {
   retry?: RetryConfig;
   /** Request logger from `createLogger` (`@sokpheak/sp-laravel-api/logging`). With none configured logging is a no-op. */
   logger?: RequestLogger;
+  /**
+   * Treat a 2xx response whose JSON body is an object with `success: false` as a failure and throw `SpApiError`
+   * (status stays 2xx; `errorCode` and `message` come from the body; error code 10002 triggers the
+   * `auth.handleUnauthorized` refresh once). Default `true`; set `false` to get such a body back as `data`.
+   */
+  treatSuccessFalseAsError?: boolean;
 }
 
 /** One HTTP call. */
@@ -248,6 +254,8 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
     };
     const maxRetryAttempts = retryEnabled ? (retryCfg.maxAttempts ?? 0) : 0;
     let retryCount = 0;
+    /** One refresh per call, shared by the 401 path and the 10002 path (even after a network/status retry). */
+    let refreshed = false;
 
     for (let attempt = 0; ; attempt++) {
       if (isAborted(o.signal)) throw o.signal?.reason;
@@ -305,9 +313,30 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
         o.signal?.removeEventListener('abort', onAbort);
       }
 
+      if (failure === null && cfg.treatSuccessFalseAsError !== false && o.responseType !== 'text' && text.trim() !== '') {
+        let probe: unknown;
+        try {
+          probe = JSON.parse(text);
+        } catch {
+          probe = undefined;
+        }
+        if (isRecord(probe) && probe.success === false) {
+          failure = errorFromBody(res, text, {
+            module: o.module,
+            tenantHeader: cfg.tenant?.header,
+            disabledOn404: o.disabledOn404,
+          });
+        }
+      }
+
       if (failure !== null) {
         if (lg) fin(lg, { attempt: attempt + 1, t0, sent: headers, res, failure });
-        if (failure.status === 401 && attempt === 0 && cfg.auth?.handleUnauthorized !== undefined) {
+        if (
+          !refreshed &&
+          (failure.status === 401 || (failure.status < 400 && failure.errorCode === 10002)) &&
+          cfg.auth?.handleUnauthorized !== undefined
+        ) {
+          refreshed = true;
           const sent: Record<string, string> = {};
           headers.forEach((v, k) => {
             sent[k.toLowerCase()] = v;

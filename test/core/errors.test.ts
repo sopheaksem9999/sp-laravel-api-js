@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SpApiError, errorFromResponse, isSpApiError, transportError } from '../../src/index';
+import { errorFromBody } from '../../src/core/errors';
 
 function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
   return new Response(JSON.stringify(body), {
@@ -129,5 +130,18 @@ describe('transportError', () => {
     expect(err.module).toBe('crm');
     expect(err.cause).toBe(cause);
     expect(transportError('timeout', cause).code).toBe('timeout');
+  });
+});
+
+describe('errorFromBody', () => {
+  it('maps a 200 envelope error_code and keeps status 200', () => {
+    const res = new Response('', { status: 200 });
+    const e = errorFromBody(res, JSON.stringify({ success: false, error_code: 10008, message: 'nope' }));
+    expect(e).toMatchObject({ status: 200, code: 'forbidden', errorCode: 10008, message: 'nope' });
+  });
+  it('an unlisted or missing error_code is unknown', () => {
+    const res = new Response('', { status: 200 });
+    expect(errorFromBody(res, '{"success":false}').code).toBe('unknown');
+    expect(errorFromBody(res, '{"success":false,"error_code":7}').code).toBe('unknown');
   });
 });
