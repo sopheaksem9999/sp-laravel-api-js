@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0
+
+### Minor Changes
+
+- Added `serializeFilters(query, { quoting, driver? })`: the query parameters for `select`, `where`, `or`, `search`, `aggregate`, `groupBy`, `distinct`, `trashed` and `sort`, without any paging. It quotes values exactly like `serializeQuery`, but never adds `per_page`, `page`, `cursor`, `direction`, `cursor_column` or `total`, for hosts that run their own list layer and set paging themselves. A paging key in an object literal is a type error, and a query that carries one (for example a `Query` variable) throws `unencodable_value`. `serializeQuery` is unchanged. The types `FilterQuery` and `FilterSerializeOptions` are exported.
+
+- `attachments.upload()` can now send the fields the upload route validates. Resize (form upload only): `width`, `height`, `fit`, `sizeName` (sent as `w`, `h`, `fit`, `size_name`) and `asTemp`. Every strategy: `replaceOld`, `title`, `caption`, `tempTimeoutMinutes`, `tempTimeoutAt` and `folderId`, which moves up from `DirectUploadOptions` to `UploadOptions`. When the server would silently ignore or override an option, the client throws `unencodable_value` before any request: `asTemp: true` with a `private` / `public` visibility, a timeout without a temporary upload, both timeouts, `replaceOld: true` without `recordType` and `recordId`, `sizeName` together with `width`, `height` or `fit`, and a `width` or `height` that is not a positive integer. Only a truthy flag counts: `replaceOld: false` is not sent. `replaceOld` replaces what is in that `collection` (`default` when omitted) of the record and deletes old files nothing else links to. `tempTimeoutAt` is sent as given (a `Date` as ISO); the server drops the offset, so a UTC string is only right when the host's `app.timezone` is UTC. The server's own ranges (width and height 10 to 3000, title length, timeout cap) are not copied: the host's 422 reports them. `folderId` was already typed on the strategy options but the form upload (the default strategy, and small files under `auto`) ignored it; it now sends `folder_id`, so a stale or unknown folder id gets the host's 422 "Folder not found" instead of being dropped silently.
+
+### Patch Changes
+
+- A hand-set `Content-Type` on a `FormData` body is now dropped, so the runtime adds `multipart/form-data; boundary=...` itself. A `Content-Type` set by hand (per call, or returned by `auth.getHeaders()`, in any letter case) can never carry the boundary the runtime generates, so those uploads were rejected by the backend. String, `Blob` and `URLSearchParams` bodies keep the `Content-Type` you choose.
+
+- Added `llms.txt` to the package: a short feature map, recipes and the defaults that bite, so an AI assistant (or a new developer) can learn the package's key features and usage quickly. It ships in the npm tarball, linked from the README. Its code blocks are type-checked with the README's.
+
 ## 0.4.0
 
 ### Minor Changes
