@@ -7,6 +7,7 @@ import type { Query, Where } from '../core/query-types';
 import { serializeQuery } from '../core/serialize';
 import { checkPartSize, directUploads, fileName, toSource } from './multipart';
 import type { DirectUploadOptions, MultipartUploadOptions, UploadSource } from './multipart';
+import { checkUploadFields, formOnlyFields, sharedFields } from './upload-fields';
 
 export { DEFAULT_PART_SIZE, MAX_PART_SIZE, MAX_PARTS, MIN_PART_SIZE } from './multipart';
 export type { DirectUploadOptions, MultipartState, MultipartUploadOptions, UploadProgress, UploadSource } from './multipart';
@@ -82,13 +83,50 @@ export interface UploadOptions {
   /** File name sent with the file part. Defaults to the `File` name, or `'file'` for a bare `Blob` / `Uint8Array`. */
   name?: string;
   signal?: AbortSignal;
+  /** Sent as `folder_id`. */
+  folderId?: AttachmentId;
+  /**
+   * Sent as `replace_old`: replaces what is linked in the same `collection` (`default` when omitted) of this record. The old
+   * links are deleted, and an old attachment's file and row too when no other link uses it. Needs `recordType` and `recordId`
+   * (without them the server makes no link and ignores it, so the client throws). Only `true` is sent.
+   */
+  replaceOld?: boolean;
+  title?: string;
+  caption?: string;
+  /**
+   * Sent as `temp_timeout_minutes`: a positive integer, capped by the host's `attachments.max_temp_timeout_minutes`. Only for
+   * a temporary upload (`asTemp: true` or a `temp_*` visibility); not together with `tempTimeoutAt`.
+   */
+  tempTimeoutMinutes?: number;
+  /**
+   * Sent as `temp_timeout_at`: a string is sent unchanged, a `Date` as `toISOString()`. Only for a temporary upload. The server
+   * stores the clock time of the string and drops its offset, so a UTC string is only correct when the host's `app.timezone`
+   * is UTC (the Laravel default).
+   */
+  tempTimeoutAt?: string | Date;
+}
+
+/** Options only the form upload can send: the file passes through the server, so it can resize it and mark it temporary. */
+export interface FormUploadOptions {
+  /** Sent as `w`, a positive integer; the server's own range (10 to 3000) is enforced by the server. */
+  width?: number;
+  /** Sent as `h`. */
+  height?: number;
+  fit?: 'crop' | 'contain';
+  /** Sent as `size_name`, a key of the host's `attachments.image_sizes`; overrides `w`, `h` and `fit`, so it cannot be combined with them. */
+  sizeName?: string;
+  /**
+   * Sent as `as_temp` (only `true`). The server then replaces a `private` / `public` visibility with its temporary default, so
+   * `asTemp: true` with those throws. On `direct` and `multipart` uploads use `visibility: 'temp_private' | 'temp_public'` instead.
+   */
+  asTemp?: boolean;
 }
 
 /** Upload strategy for `upload`. */
 export type UploadStrategy = 'auto' | 'form' | 'direct' | 'multipart';
 
 /** Options for `upload`: the form upload by default, or another strategy. */
-export interface UploadStrategyOptions extends MultipartUploadOptions {
+export interface UploadStrategyOptions extends MultipartUploadOptions, FormUploadOptions {
   /**
    * `'form'` (default): one `multipart/form-data` POST. `'direct'`: `uploadDirect`. `'multipart'`: `uploadMultipart`.
    * `'auto'`: multipart when the size is above `partSize` x 2 (or unknown, for streams); otherwise direct when
@@ -303,7 +341,8 @@ export function attachments(api: Api, options: AttachmentsOptions = {}): Attachm
 
   const { uploadDirect, uploadMultipart } = directUploads(api, (fn) => path(fn));
 
-  const formUpload = async (file: UploadSource, o: UploadOptions): Promise<Attachment> => {
+  const formUpload = async (file: UploadSource, o: UploadOptions & FormUploadOptions): Promise<Attachment> => {
+    checkUploadFields(o, 'form');
     const src = toSource(file);
     if (src === null || src.kind === 'stream') {
       throw bad("attachments.upload: the form upload needs a Blob, Uint8Array or ArrayBuffer; use strategy 'multipart' for streams");
@@ -317,7 +356,7 @@ export function attachments(api: Api, options: AttachmentsOptions = {}): Attachm
       record_id: str(o.recordId),
       collection_name: o.collection,
     };
-    for (const [k, v] of Object.entries(fields)) if (v !== undefined) fd.append(k, v);
+    for (const [k, v] of Object.entries({ ...fields, ...sharedFields(o), ...formOnlyFields(o) })) if (v !== undefined) fd.append(k, String(v));
     return call<Attachment>('POST', path('upload'), { body: fd, signal: o.signal }, o.recordType === undefined);
   };
 

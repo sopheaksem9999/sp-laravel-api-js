@@ -53,8 +53,6 @@ export interface UploadProgress {
 export interface DirectUploadOptions extends UploadOptions {
   /** Sent as `content_type`. Defaults to the `Blob` type when it has one. */
   contentType?: string;
-  /** Sent as `folder_id`. */
-  folderId?: AttachmentId;
 }
 
 /** Options for `uploadMultipart`. */
