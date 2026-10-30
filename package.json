@@ -146,6 +146,7 @@
   "files": [
     "dist",
     "README.md",
+    "llms.txt",
     "LICENSE",
     "CHANGELOG.md"
   ],

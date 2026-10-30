@@ -15,7 +15,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 const MODULES = ['attachments', 'audit', 'bulk', 'docs', 'logging', 'permissions', 'realtime', 'webhooks'];
-const FILES = ['README.md', ...MODULES.map((m) => `src/${m}/README.md`)];
+const FILES = ['README.md', 'llms.txt', ...MODULES.map((m) => `src/${m}/README.md`)];
 
 interface Block {
   file: string;

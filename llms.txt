@@ -1,0 +1,165 @@
+# @sokpheak/sp-laravel-api: quick guide for AI assistants
+
+> A typed client for APIs served by the Laravel package `sopheak/sp-laravel-api`. Read this first, then the README for detail.
+
+## 1. What it is
+
+- A TypeScript client that works **only** with a host running `sopheak/sp-laravel-api` (`^0.5.06`; hosts older than 0.5.06 need `createApi({ quoting: false })`).
+- It gives you: typed table CRUD (`api.table()`), a query builder that serialises filters for you, pages and `iterate`, one error type (`SpApiError`), and feature modules as subpath imports.
+- Runs in browsers, Node >= 20, Deno, Bun and edge runtimes. ESM and CJS. No framework code. Plain functions, no classes to extend.
+- Detailed docs: `README.md` (in this package) and one README per module on GitHub under `src/<module>/README.md` (`https://github.com/sopheaksem9999/sp-laravel-api-js`); the module READMEs are not in the npm tarball.
+
+## 2. Install and first call
+
+```bash
+npm install @sokpheak/sp-laravel-api
+```
+
+```ts
+// typecheck
+import { createApi } from '@sokpheak/sp-laravel-api';
+
+interface Invoice { id: number; ref_number: string; total: number; status: string }
+
+const client = createApi({
+  baseUrl: 'https://api.example.com/api/v2', // origin + the host's api_prefix
+  auth: { getHeaders: async () => ({ Authorization: 'Bearer <token>' }) },
+  tenant: { header: 'X-Company-ID', value: () => 5 },
+});
+const items = client.table<Invoice>('invoices');
+const page = await items.list({ where: { status: 'open' }, perPage: 20 });
+console.log(page.data.length, page.next);
+```
+
+`createApi` options you will meet: `baseUrl`, `auth`, `tenant`, `rpcPrefix` (default `'rpc'`), `defaults` (`perPage`, `total`), `fetch`, `timeoutMs`, `retry`, `quoting`, `treatSuccessFalseAsError`, `logger`, `debug`. Everything else is per call.
+
+## 3. Feature map
+
+| You need | Use | Import from |
+|---|---|---|
+| Create, read, update, delete rows | `api.table<T>(name)`: `list`, `get`, `create`, `update`, `patch`, `remove`, `restore`, `upsert`, `iterate`, `aggregate`, `cursorPagination` | `@sokpheak/sp-laravel-api` |
+| Filters, sorting, selects | the `Query` object; `serializeQuery`; `serializeFilters` (filters without paging) | `@sokpheak/sp-laravel-api` |
+| A custom host route | `api.rpc(path, opts)` and `api.fn(table, name, opts)` | `@sokpheak/sp-laravel-api` |
+| Errors | `SpApiError`, `isSpApiError` | `@sokpheak/sp-laravel-api` |
+| Many rows in one call | `bulk(table)`: `create`, `update`, `delete`, `upsert`, `mixed` | `@sokpheak/sp-laravel-api/bulk` |
+| Files | `attachments(api)`: `upload`, `uploadDirect`, `uploadMultipart`, `viewBytes`, `viewUrl`, `forRecord`, `folders` | `@sokpheak/sp-laravel-api/attachments` |
+| Audit trail | `audit(api)`: `list`, `stats`, `fieldTimeline`, `fieldStats` | `@sokpheak/sp-laravel-api/audit` |
+| Roles and permissions | `permissions(api)` | `@sokpheak/sp-laravel-api/permissions` |
+| Outgoing webhooks | `webhooks(api)` | `@sokpheak/sp-laravel-api/webhooks` |
+| Live changes | `realtime(api)`, `subscribeTenant(echo, api, opts)` (bring your own Echo or Pusher client) | `@sokpheak/sp-laravel-api/realtime` |
+| The host's OpenAPI and agent contract | `docs(api)`: `openapi`, `llms`; `capabilities` | `@sokpheak/sp-laravel-api/docs` |
+| Request logs for debugging | `createLogger({ sink })` | `@sokpheak/sp-laravel-api/logging` |
+| Row types from the host | CLI `npx sp-laravel-api typegen --url <openapi.json> --out src/types/sp-api.ts` | (CLI) |
+
+## 4. Recipes
+
+Filters and paging:
+
+```ts
+// typecheck
+const rows = await invoices.list({
+  select: ['id', 'ref_number', { customer: ['id', 'display_name'] }],
+  where: { status: { in: ['open', 'paid'] }, total: { gte: 100 } },
+  sort: { by: 'created_at', order: 'desc' },
+  cursor: null, // first cursor page; page.next is the next cursor, null at the end
+  perPage: 50,
+});
+for await (const row of invoices.iterate({ where: { status: 'open' } })) console.log(row.id);
+console.log(rows.next);
+```
+
+Create, update, delete:
+
+```ts
+// typecheck
+const created = await invoices.create({ ref_number: 'INV-1', total: 120 });
+await invoices.update(created.id, { total: 130 });
+await invoices.remove(created.id);
+```
+
+A custom route (`GET rpc/reports/summary?year=2026`):
+
+```ts
+// typecheck
+const summary = await api.rpc<{ total: number }>('reports/summary', { query: { year: 2026 } });
+console.log(summary.total);
+```
+
+Errors:
+
+```ts
+// typecheck
+import { isSpApiError } from '@sokpheak/sp-laravel-api';
+
+try {
+  await invoices.create({ total: -1 });
+} catch (e) {
+  if (!isSpApiError(e)) throw e;
+  if (e.code === 'validation') console.log(e.fieldErrors); // { total: ['...'] }
+  else if (e.isTransport) console.log(e.code); // 'network' or 'timeout'; the cause is on e.cause
+  else console.log(e.status, e.code, e.errorCode, e.requestId, e.retryAfter);
+}
+```
+
+Error `code` is one of: `unauthenticated`, `forbidden`, `not_found`, `validation`, `tenant_required`, `module_disabled`, `not_configured`, `unencodable_value`, `rate_limited`, `server`, `network`, `timeout`, `unknown`.
+
+Uploads (the form upload is the default; resize and `asTemp` need it):
+
+```ts
+// typecheck
+import { attachments } from '@sokpheak/sp-laravel-api/attachments';
+
+const files = attachments(api);
+const avatar = await files.upload(file, { width: 512, visibility: 'public' });
+await files.upload(file, { recordType: 'products', recordId: 7, collection: 'gallery', replaceOld: true });
+const temp = await files.upload(file, { visibility: 'temp_private', tempTimeoutMinutes: 60 });
+const bytes = await files.viewBytes(avatar.id); // authenticated fetch of the file
+console.log(temp.id, bytes.byteLength);
+```
+
+Filters for a host that does its own paging:
+
+```ts
+// typecheck
+import { serializeFilters } from '@sokpheak/sp-laravel-api';
+
+const params = serializeFilters({ where: { name: { like: 'Smith, John (Jr)' } } }, { quoting: true });
+console.log(params.toString()); // no per_page, page, cursor or total
+```
+
+Live changes with Laravel Echo:
+
+```ts
+// typecheck
+import { subscribeTenant } from '@sokpheak/sp-laravel-api/realtime';
+
+declare const echo: Parameters<typeof subscribeTenant>[0];
+const stop = subscribeTenant(echo, api, {
+  tenantId: 5,
+  tables: ['invoices'],
+  onChange: (c) => console.log(c.table, c.action, c.record),
+  onUnhandled: (e) => console.log(e.eventName, e.payload), // anything that is not a record event
+});
+stop();
+```
+
+## 5. Defaults that bite
+
+- A 2xx response whose JSON body is `{ success: false }` **throws** `SpApiError` (status stays 2xx). Set `treatSuccessFalseAsError: false` to get the body back as data instead.
+- `lastPage()` needs a `sort`; without one it throws `unencodable_value` (the host's default sort depends on the table).
+- `per_page` is always sent on list calls (default 25). `cursor: null` or `''` sends `cursor=0`. A page's `next` is set only when the page is full.
+- Retries are off by default and, when on, apply to GET and HEAD only unless a call passes `retry: true`.
+- Ids and names that go into a URL path are guarded: an empty, `.` or `..` value throws `unencodable_value` and sends nothing.
+- A 404 is `module_disabled` only on calls with no lookup target; elsewhere it is `not_found`.
+- When the server would silently ignore or override an upload option, the client throws `unencodable_value` first (for example `asTemp: true` with a `private` visibility, a timeout on a non-temporary upload, `replaceOld` without `recordType` and `recordId`, `sizeName` with `width`).
+- A hand-set `Content-Type` on a `FormData` body is dropped so the runtime can add the multipart boundary.
+- The `fetch` option must not add auth headers (the direct-to-storage upload uses it too); use `auth`.
+- Logging is off by default and redacts by key name only, so it is not a guarantee against leaking a secret.
+
+## 6. Rules for assistants
+
+- Import from the subpath that owns the feature (`@sokpheak/sp-laravel-api/attachments`, not the root).
+- Do not invent options. Check the type in the package's `.d.ts` files (`dist/`) or the module README on GitHub before you use one.
+- Use neutral example names (`Acme`, `example.com`, `invoices`, `orders`); never put a real client name in code, tests or docs.
+- Pass auth through `createApi({ auth })`; never put a token in a URL or in `fetch` wrappers.
+- Do not copy server limits into client code (width and height range, title length, timeout cap): the host's 422 reports them.

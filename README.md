@@ -8,6 +8,10 @@ Typed JavaScript client service for the [`sopheak/sp-laravel-api`](https://packa
 
 It ships the core (`createApi`, `table()`, `api.fn()` / `api.rpc()`, the query serializer, pages and `iterate`, query-cache keys, and one error type), seven feature modules as subpath imports (`bulk`, `attachments`, `audit`, `permissions`, `webhooks`, `realtime`, `docs`; see [Modules](#modules)), and the Node-only `sp-laravel-api typegen` CLI.
 
+## For AI assistants
+
+Point an assistant at [`llms.txt`](llms.txt): a short feature map, recipes and the defaults that bite, so it learns the package without reading the whole README. It ships in the npm package (`node_modules/@sokpheak/sp-laravel-api/llms.txt`).
+
 ## Install
 
 ```sh
