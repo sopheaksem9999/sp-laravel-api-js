@@ -112,3 +112,9 @@ export interface SerializeOptions {
   driver?: 'pgsql' | 'mysql';
   defaults?: { perPage?: number; total?: boolean };
 }
+
+/** A `Query` without paging: what `serializeFilters` accepts. */
+export type FilterQuery = Omit<Query, 'page' | 'cursor' | 'direction' | 'cursorColumn' | 'perPage' | 'total'>;
+
+/** `SerializeOptions` without `defaults` (they only hold paging defaults). */
+export type FilterSerializeOptions = Omit<SerializeOptions, 'defaults'>;

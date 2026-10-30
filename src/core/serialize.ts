@@ -2,6 +2,8 @@ import { SpApiError } from './errors';
 import type {
   AggregateSpec,
   Condition,
+  FilterQuery,
+  FilterSerializeOptions,
   OperandValue,
   Query,
   Scalar,
@@ -226,8 +228,8 @@ function groupConditions(where: Where, opts: SerializeOptions): string[] {
   );
 }
 
-/** Converts a `Query` into the URL parameters the SP API expects. */
-export function serializeQuery(q: Query, opts: SerializeOptions): URLSearchParams {
+/** The part of a query that says which rows and columns: everything up to and including `sort`, no paging. */
+function serializeShape(q: FilterQuery, opts: FilterSerializeOptions): URLSearchParams {
   const p = new URLSearchParams();
   const { quoting } = opts;
 
@@ -280,6 +282,13 @@ export function serializeQuery(q: Query, opts: SerializeOptions): URLSearchParam
     if (q.sort.order !== undefined) p.set('order', q.sort.order);
   }
 
+  return p;
+}
+
+/** Converts a `Query` into the URL parameters the SP API expects. */
+export function serializeQuery(q: Query, opts: SerializeOptions): URLSearchParams {
+  const p = serializeShape(q, opts);
+
   if (q.cursor !== undefined) p.set('cursor', q.cursor === null || q.cursor === '' ? '0' : q.cursor);
   else if (q.page !== undefined) p.set('page', String(q.page));
 
@@ -295,4 +304,18 @@ export function serializeQuery(q: Query, opts: SerializeOptions): URLSearchParam
   if (total !== undefined) p.set('total', String(total));
 
   return p;
+}
+
+const PAGING_KEYS = ['page', 'cursor', 'direction', 'cursorColumn', 'perPage', 'total'] as const;
+
+/**
+ * Like `serializeQuery` without paging: only `select`, `where`, `or`, `search`, `aggregate`, `groupBy`, `distinct`,
+ * `trashed` and `sort`. For hosts that set `per_page`, `cursor` and the rest themselves. A paging key on an untyped
+ * query throws `unencodable_value`.
+ */
+export function serializeFilters(q: FilterQuery, opts: FilterSerializeOptions): URLSearchParams {
+  for (const k of PAGING_KEYS) {
+    if ((q as Record<string, unknown>)[k] !== undefined) throw unencodable(`serializeFilters takes no paging: remove "${k}"`);
+  }
+  return serializeShape(q, opts);
 }

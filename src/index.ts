@@ -11,11 +11,13 @@ export type { Keys } from './core/keys';
 export { SpApiError, errorFromResponse, isSpApiError, transportError } from './core/errors';
 export type { ErrorContext, SpErrorCode } from './core/errors';
 export type { LogEntry, LogMode, LogOption, RequestLogger } from './core/log-types';
-export { serializeQuery } from './core/serialize';
+export { serializeFilters, serializeQuery } from './core/serialize';
 export type {
   AggregateRow,
   AggregateSpec,
   Condition,
+  FilterQuery,
+  FilterSerializeOptions,
   Modifier,
   Operator,
   OperandValue,
