@@ -129,8 +129,10 @@ export type UploadStrategy = 'auto' | 'form' | 'direct' | 'multipart';
 export interface UploadStrategyOptions extends MultipartUploadOptions, FormUploadOptions {
   /**
    * `'form'` (default): one `multipart/form-data` POST. `'direct'`: `uploadDirect`. `'multipart'`: `uploadMultipart`.
-   * `'auto'`: multipart when the size is above `partSize` x 2 (or unknown, for streams); otherwise direct when
-   * `directUpload` is true; otherwise the form upload. The backend is never probed to detect direct upload.
+   * `'auto'`: the form upload, at any size, when a resize option (`width`, `height`, `fit`, `sizeName`) or `asTemp: true` is
+   * set (the file must pass through the server, so the host's `max_upload_size` applies; a stream then throws); otherwise
+   * multipart when the size is above `partSize` x 2 (or unknown, for streams); otherwise direct when `directUpload` is true;
+   * otherwise the form upload. The backend is never probed to detect direct upload.
    */
   strategy?: UploadStrategy;
   /** For `'auto'`: the host has `direct_upload.enabled`. Overrides the module option. */

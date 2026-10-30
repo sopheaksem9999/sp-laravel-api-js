@@ -167,7 +167,7 @@ The query object is serialised for you; nobody hand-writes filter strings. What 
 - **`per_page` is always sent** on list calls (default 25; set `defaults.perPage` on the client or `perPage` per query). `total: true` asks for a total, returned as `page.total`.
 - **Hosts older than 0.5.06** have no quoting and split every value on commas. Pass `createApi({ quoting: false })` and the serializer throws `SpApiError` with code `unencodable_value` for a value it cannot send safely, instead of sending a filter the server would misread.
 
-**Filters without paging.** A host that runs its own list layer can use the package's quoting without its paging: `serializeFilters(query, { quoting })` returns only `select`, `where`, `or`, `search`, `aggregate`, `group_by`, `distinct`, the trashed flags and `sortby` / `order`. It never adds `per_page`, `page`, `cursor`, `direction`, `cursor_column` or `total`; a paging key in the query is a type error (and throws `unencodable_value` for an untyped caller).
+**Filters without paging.** A host that runs its own list layer can use the package's quoting without its paging: `serializeFilters(query, { quoting })` returns only `select`, `where`, `or`, `search`, `aggregate`, `group_by`, `distinct`, the trashed flags and `sortby` / `order`. It never adds `per_page`, `page`, `cursor`, `direction`, `cursor_column` or `total`; a paging key in an object literal is a type error, and a query that carries one (for example a `Query` variable) throws `unencodable_value`.
 
 ```ts
 // typecheck
@@ -503,7 +503,7 @@ await att.upload(file, { visibility: 'temp_private', tempTimeoutMinutes: 60, tit
 console.log(avatar.id);
 ```
 
-When the server would silently ignore or override an option, the client throws `unencodable_value` before any request: `asTemp: true` with a `private` / `public` visibility, `asTemp: false` with a `temp_*` visibility, a timeout without a temporary upload, both `tempTimeoutMinutes` and `tempTimeoutAt`, `replaceOld: true` without `recordType` and `recordId`, `sizeName` together with `width`, `height` or `fit` (the host's configured size overrides them), and resize options or `asTemp: true` on `direct` / `multipart` (the file never passes through the server). `strategy: 'auto'` uses the form upload, at any size, when a resize option or `asTemp: true` is set. `tempTimeoutAt` is sent as given (a `Date` as ISO); the server drops its offset, so a UTC string is only right when the host's `app.timezone` is UTC. The server enforces the `width` / `height` range (10 to 3000), the title length and the timeout cap and answers 422; the client checks only that `width` and `height` are positive integers.
+When the server would silently ignore or override an option, the client throws `unencodable_value` before any request: `asTemp: true` with a `private` / `public` visibility, a timeout without a temporary upload, both `tempTimeoutMinutes` and `tempTimeoutAt`, `replaceOld: true` without `recordType` and `recordId`, `sizeName` together with `width`, `height` or `fit` (the host's configured size overrides them), and resize options or `asTemp: true` on `direct` / `multipart` (the file never passes through the server). `strategy: 'auto'` uses the form upload, at any size, when a resize option or `asTemp: true` is set. `tempTimeoutAt` is sent as given (a `Date` as ISO); the server drops its offset, so a UTC string is only right when the host's `app.timezone` is UTC. The server enforces the `width` / `height` range (10 to 3000), the title length and the timeout cap and answers 422; the client checks only that `width` and `height` are positive integers.
 
 Private images and files through the client's own auth and tenant headers (the exact bytes, never decoded as text):
 
@@ -766,11 +766,11 @@ The CLI (Node 20+) emits an interface per `{Name}Read` / `{Name}Write` schema an
 | `@sokpheak/sp-laravel-api` | `sopheak/sp-laravel-api` (Laravel) |
 |---|---|
 | `0.1` to `0.3` | `^0.5.06` |
-| next minor (unreleased) | `^0.5.06` |
+| `0.4` and later | `^0.5.06` |
 
 Hosts older than 0.5.06 work with `quoting: false` (see above).
 
-The next minor changes some defaults (see `.changeset/` and the changelog when it is released). **Breaking:** a 2xx `{ success: false }` response now throws `SpApiError` (set `treatSuccessFalseAsError: false` to keep the old behaviour); `lastPage()` without a `sort` throws `unencodable_value`; the message of a `network` / `timeout` error no longer includes the underlying error text (`err.cause` keeps it); attachment ids, record ids and `rpcPrefix` are guarded (an empty, `.` or `..` value throws `unencodable_value`); `RealtimeChange` gains a required `raw`. Cursor `direction` / `cursorColumn`, `rpc` / `fn` `query`, `responseType` `'blob'` / `'arrayBuffer'`, `attachments.viewBytes` / `viewBlob`, `isTransport` / `isHttp` and the realtime `onUnhandled` / `events` need nothing from the host beyond `^0.5.06`. The upload options, `serializeFilters` and the `FormData` header rule are not breaking and need nothing beyond `^0.5.06` either.
+`0.4.0` changed some defaults (see the changelog). **Breaking in 0.4.0:** a 2xx `{ success: false }` response now throws `SpApiError` (set `treatSuccessFalseAsError: false` to keep the old behaviour); `lastPage()` without a `sort` throws `unencodable_value`; the message of a `network` / `timeout` error no longer includes the underlying error text (`err.cause` keeps it); attachment ids, record ids and `rpcPrefix` are guarded (an empty, `.` or `..` value throws `unencodable_value`); `RealtimeChange` gains a required `raw`. Cursor `direction` / `cursorColumn`, `rpc` / `fn` `query`, `responseType` `'blob'` / `'arrayBuffer'`, `attachments.viewBytes` / `viewBlob`, `isTransport` / `isHttp` and the realtime `onUnhandled` / `events` need nothing from the host beyond `^0.5.06`. The upload options, `serializeFilters` and the `FormData` header rule are not breaking and need nothing beyond `^0.5.06` either.
 
 ## License
 

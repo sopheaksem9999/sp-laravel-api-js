@@ -47,11 +47,10 @@ describe('llms.txt', () => {
     for (const s of subpaths) expect(llms, s).toContain(`@sokpheak/sp-laravel-api${s}`);
   });
 
-  it('names no forbidden client name when FORBIDDEN_NAMES is set', () => {
-    const list = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.FORBIDDEN_NAMES;
-    if (list === undefined || list.trim() === '') return;
+  const forbidden = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env?.FORBIDDEN_NAMES;
+  it.skipIf(forbidden === undefined || forbidden.trim() === '')('names no forbidden client name', () => {
     const text = llms.toLowerCase();
-    for (const name of list.split(',').map((n) => n.trim().toLowerCase()).filter((n) => n !== '')) {
+    for (const name of (forbidden ?? '').split(',').map((n) => n.trim().toLowerCase()).filter((n) => n !== '')) {
       expect(text.includes(name), 'a forbidden name appears in llms.txt').toBe(false);
     }
   });

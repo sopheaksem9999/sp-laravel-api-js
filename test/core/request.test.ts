@@ -137,6 +137,12 @@ describe('createRequester', () => {
       expect(calls[0]?.headers.get('content-type')).toBe('application/octet-stream');
     });
 
+    it('a URLSearchParams body keeps its chosen content-type', async () => {
+      const { request, calls } = setup([ok()]);
+      await request({ method: 'POST', path: 'x', body: new URLSearchParams({ a: '1' }), headers: { 'Content-Type': 'application/x-www-form-urlencoded' } });
+      expect(calls[0]?.headers.get('content-type')).toBe('application/x-www-form-urlencoded');
+    });
+
     it('a JSON body still gets application/json', async () => {
       const { request, calls } = setup([ok()]);
       await request({ method: 'POST', path: 'x', body: { a: 1 } });

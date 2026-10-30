@@ -76,15 +76,15 @@ or use the signed, public `preview_url` when the host enables previews.
 |---|---|---|---|---|
 | `width`, `height` | `w`, `h` | yes | no (throws) | Positive integer. The server enforces its own range (10 to 3000) and answers 422; the client does not copy it. Not in the host's docs. |
 | `fit` | `fit` | yes | no (throws) | `'crop'` or `'contain'`. |
-| `sizeName` | `size_name` | yes | no (throws) | A key of the host's `attachments.image_sizes`. When it exists the server overrides `w`, `h` and `fit`, so `sizeName` together with any of them throws. |
-| `asTemp` | `as_temp` | yes | `true` throws | Only `true` is sent. With `private` / `public` visibility the server would replace the visibility with its temporary default, so that combination throws, and so does `asTemp: false` with a `temp_*` visibility. On direct and multipart uploads use `visibility: 'temp_private' \| 'temp_public'`. |
+| `sizeName` | `size_name` | yes | no (throws) | A key of the host's `attachments.image_sizes`. For a configured name the server takes `w`, `h` and `fit` from that size (only the keys the size defines) and ignores a name that is not configured; the client cannot tell which, so `sizeName` together with `width`, `height` or `fit` throws. |
+| `asTemp` | `as_temp` | yes | `true` throws | Only `true` is sent; `asTemp: false` is a no-op and never throws. With `private` / `public` visibility the server would replace the visibility with its temporary default, so `asTemp: true` with those throws. With a `temp_*` visibility the visibility decides. On direct and multipart uploads use `visibility: 'temp_private' \| 'temp_public'`. |
 | `replaceOld` | `replace_old` | yes | yes (sent on the final call) | Needs `recordType` and `recordId` (without them the server makes no link and ignores it, so the client throws). It replaces what is linked in the same `collection` (`default` when omitted) of that record: the old links are deleted, and an old attachment's file and row too when no other link uses it. Only `true` is sent; `false` is a no-op. |
 | `title`, `caption` | `title`, `caption` | yes | yes (final call) | Strings; the server limits `title` to 255 characters. |
 | `folderId` | `folder_id` | yes | yes (create and final call) | |
 | `tempTimeoutMinutes` | `temp_timeout_minutes` | yes | yes (final call) | Positive integer, capped by the host's `attachments.max_temp_timeout_minutes` (not copied). Only for a temporary upload (`asTemp: true` or a `temp_*` visibility). |
 | `tempTimeoutAt` | `temp_timeout_at` | yes | yes (final call) | A string is sent unchanged, a `Date` as `toISOString()`; an invalid `Date` or an empty string throws. Not together with `tempTimeoutMinutes`. The server stores the clock time of the string and drops its offset, so a UTC string is only right when the host's `app.timezone` is UTC. |
 
-"The final call" is `complete-upload` (or `complete-multipart-upload`); the create and part-signing calls never carry these fields.
+"The final call" is `complete-upload` (or `complete-multipart-upload`). The create and part-signing calls carry none of these fields except `folder_id`, which the create call also sends. A resumed multipart upload keeps only its own state: pass `title`, `replaceOld`, the record fields and the timeouts again when you resume, or the final call goes without them.
 
 ```ts
 // typecheck

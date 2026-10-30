@@ -15,7 +15,7 @@ const positiveInt = (v: unknown): boolean => typeof v === 'number' && Number.isI
 /**
  * Throws `unencodable_value` (no request is made) when the server would silently ignore or override an option:
  * resize or `asTemp` on a direct upload, a timeout without a temporary upload, `replaceOld` without a record, and so on.
- * Only a truthy flag counts: `replaceOld: false` and `asTemp: false` with a non-temporary visibility are no-ops.
+ * Only a truthy flag counts: `replaceOld: false` and `asTemp: false` are no-ops (with a `temp_*` visibility the visibility wins).
  * The server's own ranges (width and height, title length, timeout cap) are left to its 422.
  */
 export function checkUploadFields(o: UploadFieldOptions, strategy: UploadFieldStrategy): void {
@@ -45,9 +45,6 @@ export function checkUploadFields(o: UploadFieldOptions, strategy: UploadFieldSt
 
   if (o.asTemp === true && o.visibility !== undefined && !isTemp(o.visibility)) {
     throw bad(`asTemp: true contradicts visibility '${o.visibility}': the server would replace it with its temporary default`);
-  }
-  if (o.asTemp === false && isTemp(o.visibility)) {
-    throw bad(`asTemp: false contradicts visibility '${String(o.visibility)}': a temp_* visibility is always temporary`);
   }
 
   if (o.tempTimeoutMinutes !== undefined && !positiveInt(o.tempTimeoutMinutes)) {

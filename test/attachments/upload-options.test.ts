@@ -101,8 +101,15 @@ describe('upload options on the form upload', () => {
     expect(fd.get('visibility')).toBe('temp_public');
   });
 
-  it('asTemp false with temp_private throws', async () => {
-    await throwsBeforeRequest({ asTemp: false, visibility: 'temp_private' }, /asTemp/);
+  it('asTemp false never throws: with temp_private the visibility wins and as_temp is not sent', async () => {
+    const fd = await formOf({ asTemp: false, visibility: 'temp_private' });
+    expect(fd.get('visibility')).toBe('temp_private');
+    expect(fd.has('as_temp')).toBe(false);
+  });
+
+  it('asTemp false with a temp visibility still allows a timeout (the visibility makes it temporary)', async () => {
+    const fd = await formOf({ asTemp: false, visibility: 'temp_public', tempTimeoutMinutes: 10 });
+    expect(fd.get('temp_timeout_minutes')).toBe('10');
   });
 
   it('asTemp false with public visibility is not sent and does not throw', async () => {
