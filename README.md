@@ -167,6 +167,17 @@ The query object is serialised for you; nobody hand-writes filter strings. What 
 - **`per_page` is always sent** on list calls (default 25; set `defaults.perPage` on the client or `perPage` per query). `total: true` asks for a total, returned as `page.total`.
 - **Hosts older than 0.5.06** have no quoting and split every value on commas. Pass `createApi({ quoting: false })` and the serializer throws `SpApiError` with code `unencodable_value` for a value it cannot send safely, instead of sending a filter the server would misread.
 
+**Filters without paging.** A host that runs its own list layer can use the package's quoting without its paging: `serializeFilters(query, { quoting })` returns only `select`, `where`, `or`, `search`, `aggregate`, `group_by`, `distinct`, the trashed flags and `sortby` / `order`. It never adds `per_page`, `page`, `cursor`, `direction`, `cursor_column` or `total`; a paging key in the query is a type error (and throws `unencodable_value` for an untyped caller).
+
+```ts
+// typecheck
+import { serializeFilters } from '@sokpheak/sp-laravel-api';
+
+const filters = serializeFilters({ where: { name: { like: 'Smith, John (Jr)' } }, sort: { by: 'name' } }, { quoting: true });
+console.log(filters.get('name')); // like."Smith, John (Jr)"
+console.log(filters.has('per_page')); // false
+```
+
 ## Cursor pagination
 
 ```ts
@@ -256,7 +267,7 @@ const row = await invoices.upsert(
 console.log(result, row);
 ```
 
-A timeout throws `SpApiError` `timeout`. `refetch: true` makes a second request (`GET {table}/{id}`) with the same options, and throws `SpApiError` `unknown` if the upsert response carries no `id`. The tenant header is added after the auth headers, so it replaces an auth header of the same name.
+A `Content-Type` set by hand on a `FormData` body (per call or from `auth.getHeaders()`) is dropped, so the runtime adds the multipart boundary itself; string, `Blob` and `URLSearchParams` bodies keep the one you set. A timeout throws `SpApiError` `timeout`. `refetch: true` makes a second request (`GET {table}/{id}`) with the same options, and throws `SpApiError` `unknown` if the upsert response carries no `id`. The tenant header is added after the auth headers, so it replaces an auth header of the same name.
 
 ## Error handling
 
@@ -478,6 +489,21 @@ const big = await att.uploadMultipart(video, { onProgress: ({ loaded, total }) =
 ```
 
 `upload`, `uploadDirect`, `uploadMultipart`, `cloneTemp`, `viewUrl`, `downloadUrl`, `forRecord(table, id)` (`list`, `link`, `unlink`) and `folders` (`list`, `listPage`, `create`, `update`, `remove`; list calls always send `per_page`). `uploadDirect` and `uploadMultipart` (resumable, `concurrency`, `onProgress`, `signal`) need `direct_upload.enabled` on the host and, in browsers, a bucket CORS policy exposing `ETag`; a 404 there is `module_disabled` with `module: 'attachments.direct_upload'`. `upload(file, { strategy: 'auto' })` picks multipart above `partSize × 2` (default part 8 MiB), direct only when `directUpload: true` is passed, else the form upload; `upload` without a strategy is the form upload. The multipart `upload_token` (in `onState` snapshots) is a credential. Protected files need the auth header, so fetch them with `viewBytes` / `viewBlob` (below) for `<img>`, or use the signed `preview_url` when the host enables previews. A 404 is `module_disabled` only on calls with no lookup target (`upload` without `recordType`, `folders.list`, `folders.create`); on the others it stays `not_found` (missing record, link, attachment or folder), so a disabled module reads as `not_found` there and `capabilities()` (from `/docs`) is the reliable detector. See [src/attachments/README.md](src/attachments/README.md) for routes, field names and error handling.
+
+`upload()` also sends the other fields the upload route validates. Resize and `asTemp` need the form upload (the default strategy); `replaceOld`, `title`, `caption`, the temp timeouts and `folderId` work on every strategy.
+
+```ts
+// typecheck
+const avatar = await att.upload(file, { width: 512, visibility: 'public' }); // resized on upload: w=512
+// replaceOld replaces what is in the same collection of this record ('default' when omitted), and deletes
+// an old file nothing else links to.
+await att.upload(file, { recordType: 'products', recordId: 7, collection: 'gallery', replaceOld: true });
+// A temporary upload with a timeout. With direct and multipart uploads use a temp_* visibility, not asTemp.
+await att.upload(file, { visibility: 'temp_private', tempTimeoutMinutes: 60, title: 'Draft' });
+console.log(avatar.id);
+```
+
+When the server would silently ignore or override an option, the client throws `unencodable_value` before any request: `asTemp: true` with a `private` / `public` visibility, `asTemp: false` with a `temp_*` visibility, a timeout without a temporary upload, both `tempTimeoutMinutes` and `tempTimeoutAt`, `replaceOld: true` without `recordType` and `recordId`, `sizeName` together with `width`, `height` or `fit` (the host's configured size overrides them), and resize options or `asTemp: true` on `direct` / `multipart` (the file never passes through the server). `strategy: 'auto'` uses the form upload, at any size, when a resize option or `asTemp: true` is set. `tempTimeoutAt` is sent as given (a `Date` as ISO); the server drops its offset, so a UTC string is only right when the host's `app.timezone` is UTC. The server enforces the `width` / `height` range (10 to 3000), the title length and the timeout cap and answers 422; the client checks only that `width` and `height` are positive integers.
 
 Private images and files through the client's own auth and tenant headers (the exact bytes, never decoded as text):
 
@@ -744,7 +770,7 @@ The CLI (Node 20+) emits an interface per `{Name}Read` / `{Name}Write` schema an
 
 Hosts older than 0.5.06 work with `quoting: false` (see above).
 
-The next minor changes some defaults (see `.changeset/` and the changelog when it is released). **Breaking:** a 2xx `{ success: false }` response now throws `SpApiError` (set `treatSuccessFalseAsError: false` to keep the old behaviour); `lastPage()` without a `sort` throws `unencodable_value`; the message of a `network` / `timeout` error no longer includes the underlying error text (`err.cause` keeps it); attachment ids, record ids and `rpcPrefix` are guarded (an empty, `.` or `..` value throws `unencodable_value`); `RealtimeChange` gains a required `raw`. Cursor `direction` / `cursorColumn`, `rpc` / `fn` `query`, `responseType` `'blob'` / `'arrayBuffer'`, `attachments.viewBytes` / `viewBlob`, `isTransport` / `isHttp` and the realtime `onUnhandled` / `events` need nothing from the host beyond `^0.5.06`.
+The next minor changes some defaults (see `.changeset/` and the changelog when it is released). **Breaking:** a 2xx `{ success: false }` response now throws `SpApiError` (set `treatSuccessFalseAsError: false` to keep the old behaviour); `lastPage()` without a `sort` throws `unencodable_value`; the message of a `network` / `timeout` error no longer includes the underlying error text (`err.cause` keeps it); attachment ids, record ids and `rpcPrefix` are guarded (an empty, `.` or `..` value throws `unencodable_value`); `RealtimeChange` gains a required `raw`. Cursor `direction` / `cursorColumn`, `rpc` / `fn` `query`, `responseType` `'blob'` / `'arrayBuffer'`, `attachments.viewBytes` / `viewBlob`, `isTransport` / `isHttp` and the realtime `onUnhandled` / `events` need nothing from the host beyond `^0.5.06`. The upload options, `serializeFilters` and the `FormData` header rule are not breaking and need nothing beyond `^0.5.06` either.
 
 ## License
 

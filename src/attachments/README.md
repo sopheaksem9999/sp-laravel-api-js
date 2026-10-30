@@ -30,7 +30,7 @@ The routes are table functions on `sp_attachments`: `{baseUrl}/sp_attachments/{r
 
 | Call | Route | Notes |
 |---|---|---|
-| `upload(file, o)` | `POST …/upload` | `multipart/form-data`: `file`, optional `visibility`, `record_type`, `record_id`, `collection_name`. The client sets no `Content-Type`; the runtime adds the boundary. |
+| `upload(file, o)` | `POST …/upload` | `multipart/form-data`: `file`, optional `visibility`, `record_type`, `record_id`, `collection_name` and the [upload fields](#upload-fields). The client sets no `Content-Type` (a hand-set one on a `FormData` body is dropped); the runtime adds the boundary. |
 | `cloneTemp(id, o)` | `POST …/clone-temp` | JSON `{ attachment_id, visibility?, temp_timeout_minutes?, record_type?, record_id?, collection_name? }` |
 | `forRecord(t, id).list({ collection })` | `GET …/record/{t}/{id}?per_page=&collection_name=` | returns links, each with an `attachment`. `per_page` is always sent (spec §10), but the backend ignores the query on this route except `collection_name` and returns at most its `record.default_per_page` links (default 25), with no way to page further: a backend limitation, reported |
 | `forRecord(t, id).link(ids, { collection })` | `POST …/record/{t}/{id}` | one request `{ attachment_ids: [...], collection_name? }` (backend >= 0.5.06, idempotent per id); with `quoting: false` (older hosts) one `{ attachment_id }` request per id, in order; returns the combined links |
@@ -67,6 +67,37 @@ or use the signed, public `preview_url` when the host enables previews.
 - 410: a temp attachment has expired (`cloneTemp` of an expired file). Surfaces with `status: 410`.
 - 409: `folders.remove` on a folder that is not empty. Surfaces with `status: 409` (`code: 'unknown'`).
 - 422: validation failures (size, visibility, missing file) with `fieldErrors`.
+
+## Upload fields
+
+`UploadOptions` carries the fields the upload route validates (`AttachmentUploadController::upload()`). Every option has the same name on the wire as in the table; a field that is not set is not sent.
+
+| Option | Wire field | `form` | `direct` / `multipart` | Rule |
+|---|---|---|---|---|
+| `width`, `height` | `w`, `h` | yes | no (throws) | Positive integer. The server enforces its own range (10 to 3000) and answers 422; the client does not copy it. Not in the host's docs. |
+| `fit` | `fit` | yes | no (throws) | `'crop'` or `'contain'`. |
+| `sizeName` | `size_name` | yes | no (throws) | A key of the host's `attachments.image_sizes`. When it exists the server overrides `w`, `h` and `fit`, so `sizeName` together with any of them throws. |
+| `asTemp` | `as_temp` | yes | `true` throws | Only `true` is sent. With `private` / `public` visibility the server would replace the visibility with its temporary default, so that combination throws, and so does `asTemp: false` with a `temp_*` visibility. On direct and multipart uploads use `visibility: 'temp_private' \| 'temp_public'`. |
+| `replaceOld` | `replace_old` | yes | yes (sent on the final call) | Needs `recordType` and `recordId` (without them the server makes no link and ignores it, so the client throws). It replaces what is linked in the same `collection` (`default` when omitted) of that record: the old links are deleted, and an old attachment's file and row too when no other link uses it. Only `true` is sent; `false` is a no-op. |
+| `title`, `caption` | `title`, `caption` | yes | yes (final call) | Strings; the server limits `title` to 255 characters. |
+| `folderId` | `folder_id` | yes | yes (create and final call) | |
+| `tempTimeoutMinutes` | `temp_timeout_minutes` | yes | yes (final call) | Positive integer, capped by the host's `attachments.max_temp_timeout_minutes` (not copied). Only for a temporary upload (`asTemp: true` or a `temp_*` visibility). |
+| `tempTimeoutAt` | `temp_timeout_at` | yes | yes (final call) | A string is sent unchanged, a `Date` as `toISOString()`; an invalid `Date` or an empty string throws. Not together with `tempTimeoutMinutes`. The server stores the clock time of the string and drops its offset, so a UTC string is only right when the host's `app.timezone` is UTC. |
+
+"The final call" is `complete-upload` (or `complete-multipart-upload`); the create and part-signing calls never carry these fields.
+
+```ts
+// typecheck
+import { createApi } from '@sokpheak/sp-laravel-api';
+import { attachments } from '@sokpheak/sp-laravel-api/attachments';
+
+const att = attachments(createApi({ baseUrl: 'https://host.example/api' }));
+declare const logo: Blob;
+const resized = await att.upload(logo, { width: 512, fit: 'contain', visibility: 'public' });
+const draft = await att.upload(logo, { visibility: 'temp_private', tempTimeoutMinutes: 60 });
+const swapped = await att.upload(logo, { recordType: 'products', recordId: 7, collection: 'logo', replaceOld: true });
+console.log(resized.id, draft.id, swapped.id);
+```
 
 ## Direct and multipart upload
 
@@ -122,7 +153,7 @@ Browser uploads need a CORS policy on the bucket that allows `PUT` from your ori
 
 ### Strategy `auto`
 
-`upload(file, { strategy: 'auto' })` uses multipart when the size is above `partSize × 2` (16 MiB by default) or unknown (a stream). Otherwise it uses `uploadDirect` **only when `directUpload: true`** is passed (per call, or `attachments(api, { directUpload: true })`), and otherwise the form upload. The client never probes the backend to find out whether direct upload is on. Without `strategy` (or with `'form'`) `upload` is the form upload, as before.
+`upload(file, { strategy: 'auto' })` uses the form upload, at any size, when a resize option (`width`, `height`, `fit`, `sizeName`) or `asTemp: true` is set (the file has to pass through the server; the host's `max_upload_size` then applies and a larger file gets a 422), and throws for a stream in that case. Otherwise it uses multipart when the size is above `partSize × 2` (16 MiB by default) or unknown (a stream). Otherwise it uses `uploadDirect` **only when `directUpload: true`** is passed (per call, or `attachments(api, { directUpload: true })`), and otherwise the form upload. The client never probes the backend to find out whether direct upload is on. Without `strategy` (or with `'form'`) `upload` is the form upload, as before.
 
 ### Abort, failures and resume
 
