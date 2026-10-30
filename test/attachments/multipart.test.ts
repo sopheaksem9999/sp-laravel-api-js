@@ -1025,3 +1025,151 @@ describe('attachments.uploadMultipart resume safety (fix round 1)', () => {
     expect(added.size).toBe(0);
   });
 });
+
+describe('attachments upload options on direct and multipart (2.1)', () => {
+  const fns = (calls: Call[]): string[] => calls.map((c) => c.fn);
+  const shared = {
+    visibility: 'temp_private',
+    recordType: 'products',
+    recordId: 7,
+    collection: 'gallery',
+    replaceOld: true,
+    title: 'Logo',
+    caption: 'Our logo',
+    tempTimeoutMinutes: 30,
+    folderId: 12,
+  } as const;
+
+  it('direct: complete-upload carries replace_old, title, caption, temp_timeout_minutes (S3 JSON path) and create-upload-url does not', async () => {
+    const { calls, att } = harness();
+    await att.uploadDirect(new Blob(['png']), { name: 'a.png', ...shared });
+    expect(fns(calls)).toEqual(['create-upload-url', 'PUT', 'complete-upload']);
+    const [create, , complete] = calls as [Call, Call, Call];
+    expect(create.body).toEqual({ filename: 'a.png', visibility: 'temp_private', folder_id: '12' });
+    expect(complete.body).toMatchObject({
+      visibility: 'temp_private',
+      folder_id: '12',
+      record_type: 'products',
+      record_id: '7',
+      collection_name: 'gallery',
+      replace_old: true,
+      title: 'Logo',
+      caption: 'Our logo',
+      temp_timeout_minutes: '30',
+    });
+  });
+
+  it('direct: the local-disk fallback FormData carries the same fields as strings', async () => {
+    const { calls, att } = harness({
+      api: {
+        'create-upload-url': () =>
+          json({ key: KEY, upload_url: null, method: 'POST', disk: 'local', upload_token: TOKEN, expires_at: 1900000000 }),
+      },
+    });
+    await att.uploadDirect(bytes(4), { name: 'raw.bin', ...shared, tempTimeoutAt: new Date('2026-10-30T10:00:00Z'), tempTimeoutMinutes: undefined });
+    expect(fns(calls)).toEqual(['create-upload-url', 'complete-upload']);
+    const fd = calls[1]!.rawBody as FormData;
+    expect(fd.get('replace_old')).toBe('true');
+    expect(fd.get('title')).toBe('Logo');
+    expect(fd.get('caption')).toBe('Our logo');
+    expect(fd.get('temp_timeout_at')).toBe('2026-10-30T10:00:00.000Z');
+    expect(fd.has('temp_timeout_minutes')).toBe(false);
+    expect(fd.get('folder_id')).toBe('12');
+    expect(calls[0]!.body).not.toHaveProperty('title');
+  });
+
+  it('multipart: complete-multipart-upload carries the shared fields and create-multipart-upload does not', async () => {
+    const { calls, att } = harness();
+    await att.uploadMultipart(bytes(PART + 1), { name: 'big.bin', partSize: PART, concurrency: 1, ...shared });
+    const create = calls.find((c) => c.fn === 'create-multipart-upload')!;
+    const complete = calls.find((c) => c.fn === 'complete-multipart-upload')!;
+    const sign = calls.find((c) => c.fn === 'sign-multipart-part')!;
+    for (const k of ['replace_old', 'title', 'caption', 'temp_timeout_minutes']) {
+      expect(create.body).not.toHaveProperty(k);
+      expect(sign.body).not.toHaveProperty(k);
+    }
+    expect(complete.body).toMatchObject({
+      visibility: 'temp_private',
+      folder_id: '12',
+      record_type: 'products',
+      record_id: '7',
+      collection_name: 'gallery',
+      replace_old: true,
+      title: 'Logo',
+      caption: 'Our logo',
+      temp_timeout_minutes: '30',
+    });
+  });
+
+  it.each([
+    ['width', { width: 100 }],
+    ['sizeName', { sizeName: 'thumb' }],
+    ['asTemp true', { asTemp: true }],
+  ] as const)('direct and multipart: %s throws before any request', async (_name, extra) => {
+    for (const strategy of ['direct', 'multipart'] as const) {
+      const viaUpload = harness();
+      const e1 = await spError(viaUpload.att.upload(bytes(8), { strategy, ...extra }));
+      expect(e1.code).toBe('unencodable_value');
+      expect(viaUpload.calls).toHaveLength(0);
+      const direct = harness();
+      const call = strategy === 'direct' ? direct.att.uploadDirect : direct.att.uploadMultipart;
+      const e2 = await spError(call(bytes(8), extra as never));
+      expect(e2.code).toBe('unencodable_value');
+      expect(direct.calls).toHaveLength(0);
+    }
+  });
+
+  it('direct: a timeout needs visibility temp_*', async () => {
+    const a = harness();
+    await spError(a.att.uploadDirect(bytes(4), { tempTimeoutMinutes: 5 }));
+    expect(a.calls).toHaveLength(0);
+    const b = harness();
+    await b.att.uploadDirect(bytes(4), { visibility: 'temp_public', tempTimeoutMinutes: 5 });
+    expect(last(b.calls).body?.temp_timeout_minutes).toBe('5');
+  });
+
+  it('multipart resume snapshot is unchanged by the new options', async () => {
+    const keysOf = async (o: Record<string, unknown>): Promise<string[]> => {
+      const seen: MultipartState[] = [];
+      const { att } = harness();
+      await att.uploadMultipart(bytes(PART + 1), { partSize: PART, concurrency: 1, onState: (s) => seen.push(structuredClone(s)), ...o });
+      return Object.keys(last(seen)).sort();
+    };
+    expect(await keysOf({ ...shared })).toEqual(await keysOf({ visibility: 'temp_private' }));
+  });
+
+  it('auto: a resize option picks the form upload even above partSize x 2', async () => {
+    const { calls, att } = harness();
+    await att.upload(new Blob([bytes(2 * PART + 1)]), { strategy: 'auto', partSize: PART, width: 100 });
+    expect(fns(calls)).toEqual(['upload']);
+    const fd = calls[0]!.rawBody as FormData;
+    expect(fd.get('w')).toBe('100');
+  });
+
+  it('auto: asTemp true picks the form upload', async () => {
+    const { calls, att } = harness();
+    await att.upload(new Blob([bytes(2 * PART + 1)]), { strategy: 'auto', partSize: PART, asTemp: true });
+    expect(fns(calls)).toEqual(['upload']);
+    expect((calls[0]!.rawBody as FormData).get('as_temp')).toBe('true');
+  });
+
+  it('auto: a stream with a resize option throws before any request', async () => {
+    async function* gen() {
+      yield bytes(3);
+    }
+    const { calls, att } = harness();
+    const e = await spError(att.upload(gen(), { strategy: 'auto', width: 100 }));
+    expect(e.code).toBe('unencodable_value');
+    expect(e.message).toMatch(/stream/);
+    expect(calls).toHaveLength(0);
+  });
+
+  it('auto without form-only options routes exactly as before', async () => {
+    const big = harness();
+    await big.att.upload(new Blob([bytes(2 * PART + 1)]), { strategy: 'auto', partSize: PART, title: 'x' });
+    expect(fns(big.calls)[0]).toBe('create-multipart-upload');
+    const small = harness({ mod: { directUpload: true } });
+    await small.att.upload(bytes(10), { strategy: 'auto', title: 'x' });
+    expect(fns(small.calls)[0]).toBe('create-upload-url');
+  });
+});

@@ -1,6 +1,7 @@
 import type { Api } from '../core/create-api';
 import { SpApiError } from '../core/errors';
 import type { Attachment, AttachmentId, UploadOptions } from './index';
+import { checkUploadFields, sharedFields } from './upload-fields';
 
 /** S3's minimum part size (every part but the last). The backend enforces no other minimum. */
 export const MIN_PART_SIZE = 5 * 1024 * 1024;
@@ -347,6 +348,7 @@ export function directUploads(api: Api, path: (fn: string) => string) {
   };
 
   async function uploadDirect(file: UploadSource, o: DirectUploadOptions = {}): Promise<Attachment> {
+    checkUploadFields(o, 'direct');
     const src = toSource(file);
     if (src === null) throw bad('attachments.uploadDirect: file must be a Blob, Uint8Array, ArrayBuffer, async iterable or ReadableStream');
     if (o.signal?.aborted === true) throw o.signal.reason;
@@ -380,6 +382,7 @@ export function directUploads(api: Api, path: (fn: string) => string) {
       record_type: o.recordType,
       record_id: str(o.recordId),
       collection_name: o.collection,
+      ...sharedFields(o),
     });
     if (typeof created.upload_url === 'string' && created.upload_url !== '') {
       await storagePut(created.upload_url, created.method ?? 'PUT', created.headers, body, o.signal, 'direct');
@@ -395,6 +398,9 @@ export function directUploads(api: Api, path: (fn: string) => string) {
 
   async function uploadMultipart(file: UploadSource, o: MultipartUploadOptions = {}): Promise<Attachment> {
     const concurrency = checkConcurrency(o.concurrency);
+    // A resumed upload keeps its own visibility; a timeout is checked against that one.
+    const resumedVisibility = typeof o.resume?.visibility === 'string' ? (o.resume.visibility as UploadOptions['visibility']) : undefined;
+    checkUploadFields({ ...o, visibility: o.visibility ?? resumedVisibility }, 'multipart');
     const src = toSource(file);
     if (src === null) throw bad('attachments.uploadMultipart: file must be a Blob, Uint8Array, ArrayBuffer, async iterable or ReadableStream');
     if (o.resume !== undefined && src.kind === 'stream') {
@@ -511,6 +517,7 @@ export function directUploads(api: Api, path: (fn: string) => string) {
           record_type: o.recordType,
           record_id: str(o.recordId),
           collection_name: o.collection,
+          ...sharedFields(o),
         }),
         o.signal,
         false,

@@ -370,6 +370,11 @@ export function attachments(api: Api, options: AttachmentsOptions = {}): Attachm
       const partSize = checkPartSize(o.partSize);
       const src = toSource(file);
       if (src === null) throw bad('attachments.upload: file must be a Blob, Uint8Array, ArrayBuffer, async iterable or ReadableStream');
+      // Resize and `asTemp` need the file to pass through the server: only the form upload can do that, at any size.
+      if (o.width !== undefined || o.height !== undefined || o.fit !== undefined || o.sizeName !== undefined || o.asTemp === true) {
+        if (src.kind === 'stream') throw bad('attachments.upload: resize options and asTemp need the form upload, which cannot take a stream');
+        return formUpload(file, o);
+      }
       if (src.size === null || src.size > partSize * 2) return uploadMultipart(file, o);
       if ((o.directUpload ?? options.directUpload) === true) return uploadDirect(file, o);
       return formUpload(file, o);
