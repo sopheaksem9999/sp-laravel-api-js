@@ -86,6 +86,64 @@ describe('createRequester', () => {
     expect(calls[0]?.headers.get('Content-Type')).toBe('application/json');
   });
 
+  describe('FormData content-type guard', () => {
+    const form = (): FormData => {
+      const fd = new FormData();
+      fd.append('file', new Blob(['x']), 'a.txt');
+      return fd;
+    };
+
+    it('FormData body drops a hand-set content-type from per-call headers', async () => {
+      const { request, calls } = setup([ok()]);
+      await request({ method: 'POST', path: 'x', body: form(), headers: { 'Content-Type': 'multipart/form-data' } });
+      expect(calls[0]?.headers.has('content-type')).toBe(false);
+    });
+
+    it("FormData body drops content-type in another case ('CONTENT-TYPE')", async () => {
+      const { request, calls } = setup([ok()]);
+      await request({ method: 'POST', path: 'x', body: form(), headers: { 'CONTENT-TYPE': 'multipart/form-data' } });
+      expect(calls[0]?.headers.has('content-type')).toBe(false);
+    });
+
+    it('FormData body drops a content-type coming from auth.getHeaders()', async () => {
+      const auth = { getHeaders: async () => ({ Authorization: 'Bearer t', 'Content-Type': 'multipart/form-data' }) };
+      const { request, calls } = setup([ok()], { auth });
+      await request({ method: 'POST', path: 'x', body: form() });
+      expect(calls[0]?.headers.has('content-type')).toBe(false);
+      expect(calls[0]?.headers.get('Authorization')).toBe('Bearer t');
+    });
+
+    it('the retry after a 401 refresh also sends no content-type on the FormData', async () => {
+      const auth = {
+        getHeaders: async () => ({ Authorization: 'Bearer t', 'Content-Type': 'multipart/form-data' }),
+        handleUnauthorized: async (): Promise<boolean> => true,
+      };
+      const { request, calls } = setup([json({}, 401), ok()], { auth });
+      await request({ method: 'POST', path: 'x', body: form(), headers: { 'content-type': 'multipart/form-data' } });
+      expect(calls).toHaveLength(2);
+      expect(calls[0]?.headers.has('content-type')).toBe(false);
+      expect(calls[1]?.headers.has('content-type')).toBe(false);
+    });
+
+    it('a string body keeps its chosen content-type', async () => {
+      const { request, calls } = setup([ok()]);
+      await request({ method: 'POST', path: 'x', body: 'a=1', headers: { 'Content-Type': 'text/plain' } });
+      expect(calls[0]?.headers.get('content-type')).toBe('text/plain');
+    });
+
+    it('a Blob body keeps its chosen content-type', async () => {
+      const { request, calls } = setup([ok()]);
+      await request({ method: 'POST', path: 'x', body: new Blob(['x']), headers: { 'Content-Type': 'application/octet-stream' } });
+      expect(calls[0]?.headers.get('content-type')).toBe('application/octet-stream');
+    });
+
+    it('a JSON body still gets application/json', async () => {
+      const { request, calls } = setup([ok()]);
+      await request({ method: 'POST', path: 'x', body: { a: 1 } });
+      expect(calls[0]?.headers.get('content-type')).toBe('application/json');
+    });
+  });
+
   it('passes FormData and Blob through with no content type', async () => {
     const { request, calls } = setup([ok(), ok()]);
     const fd = new FormData();

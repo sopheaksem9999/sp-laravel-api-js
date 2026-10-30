@@ -151,10 +151,14 @@ function isAborted(s: AbortSignal | undefined): boolean {
   return s?.aborted === true;
 }
 
+function isFormData(b: unknown): b is FormData {
+  return typeof FormData !== 'undefined' && b instanceof FormData;
+}
+
 function isRawBody(b: unknown): boolean {
   return (
     typeof b === 'string' ||
-    (typeof FormData !== 'undefined' && b instanceof FormData) ||
+    isFormData(b) ||
     (typeof Blob !== 'undefined' && b instanceof Blob) ||
     b instanceof ArrayBuffer ||
     ArrayBuffer.isView(b) ||
@@ -271,6 +275,8 @@ export function createRequester(cfg: ApiConfig): <T>(o: RequestOptions) => Promi
       if (o.debug === true || cfg.debug === true) headers.set('X-Debug', '1');
       if (jsonBody) headers.set('Content-Type', 'application/json');
       for (const [k, v] of Object.entries(o.headers ?? {})) headers.set(k, v);
+      // The runtime adds `multipart/form-data; boundary=...` itself; a hand-set value can never carry that boundary.
+      if (isFormData(o.body)) headers.delete('Content-Type');
 
       const controller = new AbortController();
       let timedOut = false;
